@@ -55,12 +55,23 @@ CHARACTERS.forEach(c => CHARACTER_MAP[c.id] = c);
 
 // --- 5 Rarity tiers ---
 const RARITIES = {
-  common:    { name: 'Common',    color: '#95a5a6', glow: 'none',           weight: 50, uses: 1 },
+  common:    { name: 'Common',    color: '#95a5a6', glow: 'none',           weight: 50, uses: 3 },
   rare:      { name: 'Rare',      color: '#3498db', glow: '0 0 8px #3498db', weight: 25, uses: 1 },
-  epic:      { name: 'Epic',      color: '#9b59b6', glow: '0 0 12px #9b59b6', weight: 15, uses: 2 },
-  legendary: { name: 'Legendary', color: '#f1c40f', glow: '0 0 16px #f1c40f', weight: 8,  uses: 2 },
-  mythic:    { name: 'Mythic',    color: '#e74c3c', glow: '0 0 20px #e74c3c', weight: 2,  uses: 3 }
+  epic:      { name: 'Epic',      color: '#9b59b6', glow: '0 0 12px #9b59b6', weight: 15, uses: 1 },
+  legendary: { name: 'Legendary', color: '#f1c40f', glow: '0 0 16px #f1c40f', weight: 8,  uses: 1 },
+  mythic:    { name: 'Mythic',    color: '#e74c3c', glow: '0 0 20px #e74c3c', weight: 2,  uses: 1 }
 };
+
+// --- Rarity based on affected piece type ---
+// pawns → common, knights/bishops → rare, rooks → epic, queen/king → legendary, rest → mythic
+function rarityForPiece(pieceType) {
+  if (!pieceType) return 'mythic';        // double-move, resurrect
+  if (pieceType === 'p') return 'common';
+  if (pieceType === 'n' || pieceType === 'b') return 'rare';
+  if (pieceType === 'r') return 'epic';
+  if (pieceType === 'q' || pieceType === 'k') return 'legendary';
+  return 'mythic';
+}
 
 const RARITY_KEYS = Object.keys(RARITIES);
 
@@ -82,15 +93,13 @@ function rollDraftCards(count, character, existingPool) {
 
   for (let i = 0; i < count; i++) {
     const perkId = pool[Math.floor(Math.random() * pool.length)];
-    let rarity = rollRarity();
+    const perk = _PERK_MAP[perkId];
+    // Rarity determined by affected piece type, not random
+    let rarity = perk ? rarityForPiece(perk.targetPiece) : 'mythic';
 
     if (character) {
-      if (character.ability === 'guaranteed_high' && i === 0) {
-        const highRarities = ['epic', 'legendary', 'mythic'];
-        rarity = highRarities[Math.floor(Math.random() * highRarities.length)];
-      }
       if (character.ability === 'guaranteed_resurrect' && i === 0) {
-        cards.push({ perkId: 'resurrect', rarity });
+        cards.push({ perkId: 'resurrect', rarity: 'mythic' });
         continue;
       }
     }
@@ -127,7 +136,7 @@ function applyCharacterBonuses(draftedPerks, character) {
 
 // --- Export ---
 if (typeof module !== 'undefined') {
-  module.exports = { CHARACTERS, CHARACTER_MAP, RARITIES, rollRarity, rollDraftCards, applyCharacterBonuses };
+  module.exports = { CHARACTERS, CHARACTER_MAP, RARITIES, rarityForPiece, rollRarity, rollDraftCards, applyCharacterBonuses };
 }
 if (typeof window !== 'undefined') {
   window.CHARACTERS = CHARACTERS;
