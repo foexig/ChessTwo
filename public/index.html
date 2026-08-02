@@ -11,7 +11,7 @@
   <div id="lobby" class="screen">
     <div class="lobby-card">
       <h1>♟️ Chess</h1>
-      <p class="subtitle">Local Network Multiplayer</p>
+      <p class="subtitle">Local Network Multiplayer — with Perks!</p>
 
       <div class="time-control-section">
         <label class="tc-label">Time Control</label>
@@ -69,6 +69,18 @@
 
       <!-- Side Panel -->
       <div class="side-panel">
+        <!-- Perks Panel -->
+        <div class="perks-panel">
+          <h3>Your Perks</h3>
+          <div id="myPerks" class="perk-cards"></div>
+        </div>
+
+        <!-- Opponent Perks (mini) -->
+        <div class="perks-panel opp-perks">
+          <h3>Opponent Perks</h3>
+          <div id="oppPerks" class="perk-cards-mini"></div>
+        </div>
+
         <div class="status-panel">
           <h3>Status</h3>
           <div id="gameStatus" class="game-status">Waiting for opponent...</div>
@@ -88,6 +100,12 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Perk Mode Banner -->
+    <div id="perkModeBanner" class="perk-mode-banner hidden">
+      <span id="perkModeText">Perk Mode</span>
+      <button id="btnCancelPerk" class="btn btn-small btn-danger">Cancel</button>
     </div>
 
     <!-- Promotion Dialog -->
@@ -112,6 +130,15 @@
           <button id="btnAcceptRematch" class="btn btn-primary">Accept</button>
           <button id="btnDeclineRematch" class="btn btn-secondary">Decline</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Resurrect Dialog -->
+    <div id="resurrectDialog" class="rematch-dialog hidden">
+      <div class="rematch-content">
+        <h3>♻️ Resurrect</h3>
+        <p>Select a captured piece to revive:</p>
+        <div id="resurrectOptions" class="promotion-options"></div>
       </div>
     </div>
 
@@ -145,6 +172,7 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/chess-lib.js"></script>
+  <script src="/js/perks.js"></script>
   <script src="/js/chessboard.js"></script>
   <script src="/js/main.js"></script>
 </body>

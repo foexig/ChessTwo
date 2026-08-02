@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const { Chess } = require('chess.js');
+const { PERKS, PERK_MAP, rollPerks, getResurrectSquares } = require('./public/js/perks.js');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,13 +14,12 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- Game state management ---
-const games = new Map(); // gameId -> game object
+const games = new Map();
 
 function generateGameId() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-// Time control presets (in seconds), 0 = unlimited
 const TIME_PRESETS = {
   '1+0': { initial: 60, increment: 0 },
   '2+1': { initial: 120, increment: 1 },
@@ -51,38 +51,234 @@ function getGameState(gameId) {
     },
     timeControl: game.timeControl,
     clocks: game.clocks,
-    rematchRequest: game.rematchRequest || null
+    rematchRequest: game.rematchRequest || null,
+    perks: game.perks || null,
+    perkLog: game.perkLog || []
   };
 }
 
-function updateClocks(game, socket) {
-  if (game.timeControl.initial === 0) return; // unlimited
+// --- Perk execution helpers ---
+function switchTurn(chess) {
+  const fen = chess.fen();
+  const parts = fen.split(' ');
+  parts[1] = parts[1] === 'w' ? 'b' : 'w';
+  parts[3] = '-'; // Clear en passant
+  if (parts[1] === 'w') {
+    parts[5] = (parseInt(parts[5]) + 1).toString();
+  }
+  chess.load(parts.join(' '));
+}
 
-  const now = Date.now();
-  const turn = game.chess.turn();
+function isPathClear(chess, from, to) {
+  const FILES = ['a','b','c','d','e','f','g','h'];
+  const RANKS = ['1','2','3','4','5','6','7','8'];
+  const f1 = FILES.indexOf(from[0]), r1 = RANKS.indexOf(from[1]);
+  const f2 = FILES.indexOf(to[0]), r2 = RANKS.indexOf(to[1]);
+  const dr = Math.sign(r2 - r1), df = Math.sign(f2 - f1);
+  let r = r1 + dr, f = f1 + df;
+  while (r !== r2 || f !== f2) {
+    const sq = FILES[f] + RANKS[r];
+    if (chess.get(sq)) return false;
+    r += dr; f += df;
+  }
+  return true;
+}
 
-  if (turn === 'w') {
-    // White's clock is ticking
-    if (game.lastClockUpdate) {
-      const elapsed = (now - game.lastClockUpdate) / 1000;
-      game.clocks.w = Math.max(0, game.clocks.w - elapsed);
+function isKnightMove(from, to) {
+  const df = Math.abs(from.charCodeAt(0) - to.charCodeAt(0));
+  const dr = Math.abs(from.charCodeAt(1) - to.charCodeAt(1));
+  return (df === 2 && dr === 1) || (df === 1 && dr === 2);
+}
+
+function isLongKnightMove(from, to) {
+  const df = Math.abs(from.charCodeAt(0) - to.charCodeAt(0));
+  const dr = Math.abs(from.charCodeAt(1) - to.charCodeAt(1));
+  return (df === 3 && dr === 1) || (df === 1 && dr === 3);
+}
+
+function sameColorSquare(from, to) {
+  const fromLight = (from.charCodeAt(0) + from.charCodeAt(1)) % 2 === 0;
+  const toLight = (to.charCodeAt(0) + to.charCodeAt(1)) % 2 === 0;
+  return fromLight === toLight;
+}
+
+function executePerk(game, socket, { perkId, from, to, pieceType }) {
+  const chess = game.chess;
+  const color = socket.color; // 'w' or 'b'
+  const playerPerks = game.perks[color];
+  const perkData = playerPerks.find(p => p.id === perkId && !p.used);
+  if (!perkData) return { error: 'Perk not available' };
+
+  const perk = PERK_MAP[perkId];
+  if (!perk) return { error: 'Unknown perk' };
+
+  const log = { perkId, player: color, usedAt: Date.now() };
+
+  switch (perkId) {
+    case 'sniper-rook': {
+      const piece = chess.get(from);
+      if (!piece || piece.type !== 'r' || piece.color !== color)
+        return { error: 'Select your rook' };
+      const target = chess.get(to);
+      if (!target || target.color === color)
+        return { error: 'Target must be an enemy piece' };
+      // Same rank or file
+      if (from[0] !== to[0] && from[1] !== to[1])
+        return { error: 'Target must be on same rank or file' };
+      if (!isPathClear(chess, from, to))
+        return { error: 'Path is blocked' };
+
+      chess.remove(to);
+      log.from = from; log.to = to; log.san = `R${from}x${to} (sniper)`;
+      break;
     }
-    game.lastClockUpdate = now;
-  } else {
-    if (game.lastClockUpdate) {
-      const elapsed = (now - game.lastClockUpdate) / 1000;
-      game.clocks.b = Math.max(0, game.clocks.b - elapsed);
+
+    case 'kings-knight': {
+      const piece = chess.get(from);
+      if (!piece || piece.type !== 'k' || piece.color !== color)
+        return { error: 'Select your king' };
+      if (!isKnightMove(from, to))
+        return { error: 'Must be a knight move' };
+      const target = chess.get(to);
+      if (target && target.color === color)
+        return { error: 'Cannot capture your own piece' };
+
+      chess.remove(from);
+      if (target) chess.remove(to);
+      chess.put({ type: 'k', color }, to);
+      log.from = from; log.to = to; log.san = `K${from}~${to}`;
+      break;
     }
-    game.lastClockUpdate = now;
+
+    case 'queens-leap': {
+      const piece = chess.get(from);
+      if (!piece || piece.type !== 'q' || piece.color !== color)
+        return { error: 'Select your queen' };
+      if (!isKnightMove(from, to))
+        return { error: 'Must be a knight move' };
+      const target = chess.get(to);
+      if (target && target.color === color)
+        return { error: 'Cannot capture your own piece' };
+
+      chess.remove(from);
+      if (target) chess.remove(to);
+      chess.put({ type: 'q', color }, to);
+      log.from = from; log.to = to; log.san = `Q${from}~${to}`;
+      break;
+    }
+
+    case 'pawn-blitz': {
+      const piece = chess.get(from);
+      if (!piece || piece.type !== 'p' || piece.color !== color)
+        return { error: 'Select your pawn' };
+      const startRank = color === 'w' ? '2' : '7';
+      if (from[1] !== startRank)
+        return { error: 'Pawn must be on starting rank' };
+      const dir = color === 'w' ? 1 : -1;
+      const fromFile = from.charCodeAt(0);
+      const toFile = to.charCodeAt(0);
+      const fromRank = parseInt(from[1]);
+      const toRank = parseInt(to[1]);
+      if (fromFile !== toFile)
+        return { error: 'Must move straight forward' };
+      if (toRank - fromRank !== dir * 3)
+        return { error: 'Must be exactly 3 squares forward' };
+      // Check path is clear
+      const mid1 = from[0] + (fromRank + dir);
+      const mid2 = from[0] + (fromRank + dir * 2);
+      if (chess.get(mid1) || chess.get(mid2))
+        return { error: 'Path is blocked' };
+
+      chess.remove(from);
+      chess.put({ type: 'p', color }, to);
+      log.from = from; log.to = to; log.san = `${from}--${to}`;
+      break;
+    }
+
+    case 'bishop-warp': {
+      const piece = chess.get(from);
+      if (!piece || piece.type !== 'b' || piece.color !== color)
+        return { error: 'Select your bishop' };
+      if (chess.get(to))
+        return { error: 'Target must be empty' };
+      if (!sameColorSquare(from, to))
+        return { error: 'Must be same color square' };
+
+      chess.remove(from);
+      chess.put({ type: 'b', color }, to);
+      log.from = from; log.to = to; log.san = `B${from}~${to}`;
+      break;
+    }
+
+    case 'long-knight': {
+      const piece = chess.get(from);
+      if (!piece || piece.type !== 'n' || piece.color !== color)
+        return { error: 'Select your knight' };
+      if (!isLongKnightMove(from, to))
+        return { error: 'Must be a 3+1 jump' };
+      const target = chess.get(to);
+      if (target && target.color === color)
+        return { error: 'Cannot capture your own piece' };
+
+      chess.remove(from);
+      if (target) chess.remove(to);
+      chess.put({ type: 'n', color }, to);
+      log.from = from; log.to = to; log.san = `N${from}~${to}`;
+      break;
+    }
+
+    case 'double-move': {
+      // Just set the flag — the move handler will handle the rest
+      game.doubleMoveActive = color;
+      perkData.used = true;
+      log.san = 'Double Move activated';
+      game.perkLog = game.perkLog || [];
+      game.perkLog.push(log);
+      return { success: true, skipTurnSwitch: true };
+    }
+
+    case 'resurrect': {
+      if (!pieceType)
+        return { error: 'No piece type selected' };
+      const squares = getResurrectSquares(pieceType, color);
+      const targetSq = squares.find(sq => !chess.get(sq));
+      if (!targetSq)
+        return { error: 'No empty starting square' };
+
+      // Check if piece was actually captured
+      const board = chess.board();
+      const counts = { p: 0, n: 0, b: 0, r: 0, q: 0 };
+      for (const row of board) {
+        for (const sq of row) {
+          if (sq && sq.color === color && counts[sq.type] !== undefined) {
+            counts[sq.type]++;
+          }
+        }
+      }
+      const starting = { p: 8, n: 2, b: 2, r: 2, q: 1 };
+      if (counts[pieceType] >= starting[pieceType])
+        return { error: 'No captured piece of that type' };
+
+      chess.put({ type: pieceType, color }, targetSq);
+      log.to = targetSq; log.san = `+${pieceType.toUpperCase()}@${targetSq}`;
+      break;
+    }
+
+    default:
+      return { error: 'Unknown perk' };
   }
 
-  // Check for timeout
-  if (game.clocks.w <= 0 || game.clocks.b <= 0) {
-    const winner = game.clocks.w <= 0 ? 'b' : 'w';
-    game.chessGameEnded = true;
-    return { timeout: true, winner };
-  }
-  return null;
+  // Mark perk as used
+  perkData.used = true;
+
+  // Switch turn (except for double-move which is handled differently)
+  switchTurn(chess);
+
+  // Log the perk use
+  game.perkLog = game.perkLog || [];
+  game.perkLog.push(log);
+
+  return { success: true };
 }
 
 io.on('connection', (socket) => {
@@ -100,7 +296,13 @@ io.on('connection', (socket) => {
       timeControl: { name: timeControl || 'unlimited', ...tc },
       clocks: { w: tc.initial, b: tc.initial },
       lastClockUpdate: null,
-      rematchRequest: null
+      rematchRequest: null,
+      perks: {
+        w: rollPerks(3),
+        b: rollPerks(3)
+      },
+      perkLog: [],
+      doubleMoveActive: null
     });
     socket.join(gameId);
     socket.gameId = gameId;
@@ -156,32 +358,44 @@ io.on('connection', (socket) => {
     }
 
     try {
-      // Update clock before move
-      const clockResult = updateClocks(game, socket);
-
       const move = game.chess.move({ from, to, promotion: promotion || 'q' });
       if (move) {
-        // Add increment to the player who just moved
+        // Add increment
         if (game.timeControl.initial > 0 && game.timeControl.increment > 0) {
-          if (socket.color === 'w') {
-            game.clocks.w += game.timeControl.increment;
-          } else {
-            game.clocks.b += game.timeControl.increment;
-          }
+          if (socket.color === 'w') game.clocks.w += game.timeControl.increment;
+          else game.clocks.b += game.timeControl.increment;
         }
-
-        // Start the opponent's clock
         if (game.timeControl.initial > 0) {
           game.lastClockUpdate = Date.now();
         }
 
+        // Handle double move: after first move, flip turn back to same player
+        if (game.doubleMoveActive === socket.color) {
+          game.doubleMoveActive = null;
+          // Flip turn back to the same player
+          const fen = game.chess.fen();
+          const parts = fen.split(' ');
+          parts[1] = socket.color;
+          parts[3] = '-';
+          game.chess.load(parts.join(' '));
+          io.to(socket.gameId).emit('game:state', getGameState(socket.gameId));
+          io.to(socket.gameId).emit('game:move', move);
+          io.to(socket.gameId).emit('perk:double_move_first', { color: socket.color });
+          return;
+        }
+
         io.to(socket.gameId).emit('game:move', move);
         io.to(socket.gameId).emit('game:state', getGameState(socket.gameId));
-        console.log(`[MOVE] ${socket.gameId}: ${move.from}-${move.to}`);
 
         // Check for timeout
-        if (clockResult && clockResult.timeout) {
-          io.to(socket.gameId).emit('game:timeout', { winner: clockResult.winner });
+        const clocks = game.clocks;
+        if (game.timeControl.initial > 0) {
+          const turn = game.chess.turn();
+          if ((turn === 'w' && clocks.w <= 0) || (turn === 'b' && clocks.b <= 0)) {
+            game.chessGameEnded = true;
+            const winner = turn === 'w' ? 'b' : 'w';
+            io.to(socket.gameId).emit('game:timeout', { winner });
+          }
         }
       } else {
         socket.emit('game:error', { message: 'Invalid move' });
@@ -191,7 +405,65 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Sync clocks every second for active games
+  socket.on('perk:activate', (data) => {
+    const game = games.get(socket.gameId);
+    if (!game) {
+      socket.emit('game:error', { message: 'No active game' });
+      return;
+    }
+    if (game.chessGameEnded) {
+      socket.emit('game:error', { message: 'Game is over' });
+      return;
+    }
+    if (socket.color !== game.chess.turn()) {
+      socket.emit('game:error', { message: 'Not your turn' });
+      return;
+    }
+
+    const result = executePerk(game, socket, data);
+    if (result.error) {
+      socket.emit('game:error', { message: result.error });
+      return;
+    }
+
+    // Add increment after perk move
+    if (game.timeControl.initial > 0 && game.timeControl.increment > 0) {
+      if (socket.color === 'w') game.clocks.w += game.timeControl.increment;
+      else game.clocks.b += game.timeControl.increment;
+    }
+    if (game.timeControl.initial > 0) {
+      game.lastClockUpdate = Date.now();
+    }
+
+    // Broadcast perk use
+    io.to(socket.gameId).emit('perk:used', {
+      perkId: data.perkId,
+      player: socket.color,
+      from: data.from,
+      to: data.to,
+      pieceType: data.pieceType
+    });
+
+    if (!result.skipTurnSwitch) {
+      io.to(socket.gameId).emit('game:state', getGameState(socket.gameId));
+
+      // Check for timeout
+      const clocks = game.clocks;
+      if (game.timeControl.initial > 0) {
+        const turn = game.chess.turn();
+        if ((turn === 'w' && clocks.w <= 0) || (turn === 'b' && clocks.b <= 0)) {
+          game.chessGameEnded = true;
+          const winner = turn === 'w' ? 'b' : 'w';
+          io.to(socket.gameId).emit('game:timeout', { winner });
+        }
+      }
+    } else {
+      // Double move — send state but don't switch turn
+      io.to(socket.gameId).emit('game:state', getGameState(socket.gameId));
+    }
+  });
+
+  // Clock sync interval
   setInterval(() => {
     for (const [gameId, game] of games) {
       if (game.timeControl.initial === 0) continue;
@@ -235,7 +507,6 @@ io.on('connection', (socket) => {
     console.log(`[RESIGN] ${socket.gameId}: ${socket.color} resigned`);
   });
 
-  // Rematch request/accept system
   socket.on('game:rematch_request', () => {
     const game = games.get(socket.gameId);
     if (!game) return;
@@ -243,12 +514,7 @@ io.on('connection', (socket) => {
       socket.emit('game:error', { message: 'Need both players for rematch' });
       return;
     }
-
-    game.rematchRequest = {
-      requestedBy: socket.color,
-      timestamp: Date.now()
-    };
-
+    game.rematchRequest = { requestedBy: socket.color, timestamp: Date.now() };
     io.to(socket.gameId).emit('game:rematch_request', { requestedBy: socket.color });
     console.log(`[REMATCH REQUEST] ${socket.gameId} by ${socket.color}`);
   });
@@ -265,16 +531,19 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Both agreed — reset the game
     game.chess = new Chess();
     game.chessGameEnded = false;
     game.clocks = { w: game.timeControl.initial, b: game.timeControl.initial };
     game.lastClockUpdate = null;
     game.rematchRequest = null;
+    // Reroll perks!
+    game.perks = { w: rollPerks(3), b: rollPerks(3) };
+    game.perkLog = [];
+    game.doubleMoveActive = null;
 
     io.to(socket.gameId).emit('game:state', getGameState(socket.gameId));
     io.to(socket.gameId).emit('game:rematch');
-    console.log(`[REMATCH] ${socket.gameId} reset`);
+    console.log(`[REMATCH] ${socket.gameId} reset with new perks`);
   });
 
   socket.on('game:rematch_decline', () => {
