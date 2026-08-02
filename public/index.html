@@ -82,6 +82,20 @@
     </div>
   </div>
 
+  <!-- Game Code Modal — shown after creating a game -->
+  <div id="codeModal" class="code-modal hidden">
+    <div class="code-modal-content">
+      <h2>Game Created! ♟️</h2>
+      <p class="code-hint">Share this code with your opponent:</p>
+      <div id="codeDisplayBig" class="code-display-big"></div>
+      <p class="code-ip-hint">Opponent also needs this address:<br><span id="serverIpHint"></span></p>
+      <div class="code-modal-actions">
+        <button id="btnCopyCode" class="btn btn-primary">Copy Code</button>
+        <button id="btnCloseModal" class="btn btn-secondary">Start Playing</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/chess-lib.js"></script>
   <script src="/js/chessboard.js"></script>

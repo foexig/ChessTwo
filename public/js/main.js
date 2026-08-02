@@ -23,6 +23,11 @@ const promotionDialog = document.getElementById('promotionDialog');
 const playerWhite = document.getElementById('playerWhite');
 const playerBlack = document.getElementById('playerBlack');
 
+// --- Code modal elements ---
+const codeModal = document.getElementById('codeModal');
+const codeDisplayBig = document.getElementById('codeDisplayBig');
+const serverIpHint = document.getElementById('serverIpHint');
+
 // --- Initialize board ---
 board = new ChessBoard('chessboard', {
   onMove: (from, to, isPromotion) => {
@@ -150,6 +155,35 @@ document.getElementById('btnLeave').addEventListener('click', () => {
   }
 });
 
+// --- Code modal ---
+document.getElementById('btnCopyCode').addEventListener('click', () => {
+  const code = codeDisplayBig.textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = document.getElementById('btnCopyCode');
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    });
+  } else {
+    // Fallback
+    const textarea = document.createElement('textarea');
+    textarea.value = code;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    const btn = document.getElementById('btnCopyCode');
+    const original = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  }
+});
+
+document.getElementById('btnCloseModal').addEventListener('click', () => {
+  codeModal.classList.add('hidden');
+});
+
 // --- Chat ---
 document.getElementById('btnChatSend').addEventListener('click', sendChat);
 chatInput.addEventListener('keypress', (e) => {
@@ -171,6 +205,11 @@ socket.on('game:created', ({ gameId: id, color }) => {
   showGameScreen(id, color);
   board.setMyColor(color);
   board.setFlipped(color === 'b');
+
+  // Show code modal prominently
+  codeDisplayBig.textContent = id;
+  serverIpHint.textContent = window.location.host;
+  codeModal.classList.remove('hidden');
 });
 
 socket.on('game:joined', ({ gameId: id, color }) => {
@@ -184,6 +223,8 @@ socket.on('game:joined', ({ gameId: id, color }) => {
 socket.on('game:opponent_joined', () => {
   gameStatus.textContent = 'Opponent joined! Game on.';
   gameStatus.style.color = '#4ecca3';
+  // Auto-close code modal if still open
+  codeModal.classList.add('hidden');
 });
 
 socket.on('game:state', (state) => {
