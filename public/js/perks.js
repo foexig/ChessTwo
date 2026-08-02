@@ -172,7 +172,7 @@ function getPerkTargets(perkId, fromSquare, chessInstance, myColor) {
 
     case 'pawn-blitz': {
       // Capture straight forward (1 square ahead, same file, enemy piece)
-      const dir = myColor === 'w' ? -1 : 1;
+      const dir = myColor === 'w' ? 1 : -1;
       const sq = coordsToSq(from.file, from.rank + dir);
       if (sq) {
         const target = chess.get(sq);
