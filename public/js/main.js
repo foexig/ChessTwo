@@ -327,7 +327,6 @@ function handlePerkClick(sqName) {
     }
     perkFromSquare = sqName;
     board.selectSquare(sqName);
-    SoundFX.play('notify');
     if (clientChess) {
       perkTargets = getPerkTargets(activePerk, sqName, clientChess, myColor);
       board.setLegalMoves(perkTargets.map(t => ({ to: t })));
@@ -348,7 +347,6 @@ function handlePerkClick(sqName) {
       if (!def.targetPiece || piece[1].toLowerCase() === def.targetPiece) {
         perkFromSquare = sqName;
         board.selectSquare(sqName);
-        SoundFX.play('notify');
         if (clientChess) {
           perkTargets = getPerkTargets(activePerk, sqName, clientChess, myColor);
           board.setLegalMoves(perkTargets.map(t => ({ to: t })));
@@ -361,7 +359,6 @@ function handlePerkClick(sqName) {
 function selectPiece(sqName) {
   selectedSquare = sqName;
   board.selectSquare(sqName);
-  SoundFX.play('notify');
   if (clientChess) {
     try {
       const moves = clientChess.moves({ square: sqName, verbose: true });
