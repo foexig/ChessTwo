@@ -13,6 +13,7 @@ let rematchPending = false;
 let localClocks = { w: 0, b: 0 };
 let myPerks = [];
 let oppPerks = [];
+let lowTimeWarned = false;  // play low-time sound only once at 10s
 let activePerk = null;
 let perkFromSquare = null;
 let perkTargets = [];
@@ -653,8 +654,12 @@ function updateClockDisplay(clocks, turn) {
   clockBottom.classList.toggle('active', turn === bottomColor);
   clockTop.classList.toggle('low-time', topClockVal < 20);
   clockBottom.classList.toggle('low-time', bottomClockVal < 20);
-  if (topClockVal < 10 && topClockVal > 0 && turn === topColor) SoundFX.play('tenseconds');
-  if (bottomClockVal < 10 && bottomClockVal > 0 && turn === bottomColor) SoundFX.play('tenseconds');
+  const myClockVal = myColor === 'w' ? localClocks.w : localClocks.b;
+  if (myClockVal < 10 && myClockVal > 0 && !lowTimeWarned) {
+    SoundFX.play('tenseconds');
+    lowTimeWarned = true;
+  }
+  if (myClockVal >= 10) lowTimeWarned = false;  // reset if time goes back up
 }
 
 // ==================== SOCKET EVENTS ====================
