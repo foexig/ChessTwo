@@ -33,6 +33,14 @@ const playerBottom = document.getElementById('playerBottom');
 const clockTop = document.getElementById('clockTop');
 const clockBottom = document.getElementById('clockBottom');
 
+// Game over banner
+const gameOverBanner = document.getElementById('gameOverBanner');
+const gameOverIcon = document.getElementById('gameOverIcon');
+const gameOverTitle = document.getElementById('gameOverTitle');
+const gameOverReason = document.getElementById('gameOverReason');
+const btnBannerRematch = document.getElementById('btnBannerRematch');
+const btnBannerLeave = document.getElementById('btnBannerLeave');
+
 // --- Code modal elements ---
 const codeModal = document.getElementById('codeModal');
 const codeDisplayBig = document.getElementById('codeDisplayBig');
@@ -64,7 +72,6 @@ document.querySelectorAll('.tc-btn').forEach(btn => {
 
 // --- Setup player bars based on color ---
 function setupPlayerBars(color) {
-  // Bottom = me, Top = opponent
   if (color === 'w') {
     playerBottom.textContent = 'You (White)';
     playerTop.textContent = 'Black';
@@ -72,10 +79,32 @@ function setupPlayerBars(color) {
     playerBottom.textContent = 'You (Black)';
     playerTop.textContent = 'White';
   } else {
-    // Spectator — white at bottom (default, not flipped)
     playerBottom.textContent = 'White';
     playerTop.textContent = 'Black';
   }
+}
+
+// --- Game over banner ---
+function showGameOverBanner(icon, title, reason, winnerColor) {
+  gameOverIcon.textContent = icon;
+  gameOverTitle.textContent = title;
+  gameOverReason.textContent = reason;
+
+  // Color: green if I won, red if I lost, yellow for draw/spectator
+  gameOverTitle.classList.remove('win', 'loss', 'draw');
+  if (!winnerColor) {
+    gameOverTitle.classList.add('draw');
+  } else if (winnerColor === myColor) {
+    gameOverTitle.classList.add('win');
+  } else {
+    gameOverTitle.classList.add('loss');
+  }
+
+  gameOverBanner.classList.remove('hidden');
+}
+
+function hideGameOverBanner() {
+  gameOverBanner.classList.add('hidden');
 }
 
 // --- Square click handler (click-to-move) ---
@@ -192,6 +221,21 @@ document.getElementById('btnLeave').addEventListener('click', () => {
   }
 });
 
+// Banner buttons
+btnBannerRematch.addEventListener('click', () => {
+  hideGameOverBanner();
+  if (!rematchPending) {
+    socket.emit('game:rematch_request');
+    btnRematch.textContent = 'Rematch Requested...';
+    btnRematch.disabled = true;
+    rematchPending = true;
+  }
+});
+
+btnBannerLeave.addEventListener('click', () => {
+  window.location.reload();
+});
+
 // --- Rematch request handling ---
 document.getElementById('btnAcceptRematch').addEventListener('click', () => {
   socket.emit('game:rematch_accept');
@@ -265,8 +309,6 @@ function updateClockDisplay(clocks, turn) {
 
   localClocks = clocks || localClocks;
 
-  // Map clocks to top/bottom based on perspective
-  // Bottom = my color, Top = opponent
   let topClockVal, bottomClockVal, topColor, bottomColor;
 
   if (myColor === 'w') {
@@ -276,7 +318,6 @@ function updateClockDisplay(clocks, turn) {
     topColor = 'w'; bottomColor = 'b';
     topClockVal = localClocks.w; bottomClockVal = localClocks.b;
   } else {
-    // Spectator: top = black, bottom = white
     topColor = 'b'; bottomColor = 'w';
     topClockVal = localClocks.b; bottomClockVal = localClocks.w;
   }
@@ -341,6 +382,17 @@ socket.on('game:state', (state) => {
     localClocks = state.clocks;
     updateClockDisplay(state.clocks, state.turn);
   }
+
+  // Check for game over via board state (checkmate, stalemate, draw)
+  if (state.isCheckmate) {
+    const winnerColor = state.turn === 'w' ? 'b' : 'w';
+    const winnerName = winnerColor === 'w' ? 'White' : 'Black';
+    showGameOverBanner('🏆', `${winnerName} Wins!`, 'by checkmate', winnerColor);
+  } else if (state.isStalemate) {
+    showGameOverBanner('🤝', 'Draw', 'by stalemate — no legal moves', null);
+  } else if (state.isDraw) {
+    showGameOverBanner('🤝', 'Draw', 'by repetition or insufficient material', null);
+  }
 });
 
 socket.on('clock:tick', ({ clocks, turn }) => {
@@ -350,8 +402,10 @@ socket.on('clock:tick', ({ clocks, turn }) => {
 
 socket.on('game:timeout', ({ winner }) => {
   const winnerName = winner === 'w' ? 'White' : 'Black';
+  const loserName = winner === 'w' ? 'Black' : 'White';
   gameStatus.textContent = `${winnerName} wins on time!`;
   gameStatus.style.color = '#e94560';
+  showGameOverBanner('⏱️', `${winnerName} Wins!`, `${loserName} ran out of time`, winner);
 });
 
 socket.on('game:rematch_request', ({ requestedBy }) => {
@@ -371,6 +425,7 @@ socket.on('game:rematch', () => {
   btnRematch.textContent = 'Request Rematch';
   btnRematch.disabled = false;
   rematchDialog.classList.add('hidden');
+  hideGameOverBanner();
 });
 
 socket.on('game:rematch_declined', () => {
@@ -394,8 +449,10 @@ socket.on('game:error', ({ message }) => {
 
 socket.on('game:resigned', ({ winner }) => {
   const winnerName = winner === 'w' ? 'White' : 'Black';
+  const loserName = winner === 'w' ? 'Black' : 'White';
   gameStatus.textContent = `${winnerName} wins by resignation!`;
   gameStatus.style.color = '#e94560';
+  showGameOverBanner('🏳️', `${winnerName} Wins!`, `${loserName} resigned`, winner);
 });
 
 socket.on('game:opponent_left', ({ color }) => {
@@ -434,8 +491,6 @@ function updateUI(state) {
     turnIndicator.className = 'turn-indicator';
   }
 
-  // Highlight active player label
-  const myLabelIsBottom = true; // bottom is always "me"
   const topColor = myColor === 'w' ? 'b' : myColor === 'b' ? 'w' : 'b';
   const bottomColor = myColor === 'w' ? 'w' : myColor === 'b' ? 'b' : 'w';
 
