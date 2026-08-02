@@ -1315,3 +1315,222 @@ body {
   opacity: 0.7;
   transform: translateY(-1px);
 }
+
+/* ===== REDESIGNED DRAFT CARDS (taller, card-like) ===== */
+.draft-card {
+  background: linear-gradient(180deg, #1a1f35 0%, #0f1525 100%);
+  border: 2px solid var(--rarity-color, #2a2f4a);
+  border-radius: 14px;
+  padding: 20px 14px 16px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.draft-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--rarity-color, #2a2f4a);
+  box-shadow: var(--rarity-glow, none);
+}
+
+.draft-card:hover:not(.drafted) {
+  transform: translateY(-4px);
+  box-shadow: var(--rarity-glow, none), 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.draft-card.drafted {
+  opacity: 0.4;
+  border-style: dashed;
+  cursor: pointer;
+}
+
+.draft-card.drafted:hover {
+  opacity: 0.65;
+  transform: translateY(-1px);
+}
+
+.draft-card-rarity {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--rarity-color, #95a5a6);
+  margin-bottom: 10px;
+}
+
+.draft-card-icon {
+  display: none; /* emoji removed */
+}
+
+.draft-card-piece {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 10px;
+  display: block;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+}
+
+.draft-card-name {
+  color: #e8e8e8;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.draft-card-desc {
+  color: #8892b0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  flex: 1;
+}
+
+.draft-card-uses {
+  color: var(--rarity-color, #95a5a6);
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2f4a;
+  width: 100%;
+}
+
+/* ===== GAME PERK CARDS (in side panel, clickable to activate) ===== */
+.perk-game-card {
+  background: linear-gradient(180deg, #1a1f35 0%, #0f1525 100%);
+  border: 2px solid var(--rarity-color, #2a3a5c);
+  border-radius: 12px;
+  padding: 12px;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.perk-game-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--rarity-color, #2a3a5c);
+}
+
+.perk-game-card.used {
+  opacity: 0.35;
+  filter: grayscale(0.6);
+}
+
+.perk-game-card.clickable {
+  cursor: pointer;
+}
+
+.perk-game-card.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--rarity-glow, none), 0 4px 12px rgba(0,0,0,0.3);
+  border-color: var(--rarity-color);
+}
+
+.perk-card-rarity {
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.perk-card-piece {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 6px;
+  display: block;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));
+}
+
+.perk-card-title {
+  color: #e8e8e8;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.perk-card-desc {
+  color: #8892b0;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  margin-bottom: 6px;
+}
+
+.perk-card-uses {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding-top: 5px;
+  border-top: 1px solid #2a2f4a;
+  width: 100%;
+}
+
+/* Opponent perk mini cards */
+.perk-game-card-mini {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #0f1629;
+  border: 1px solid var(--rarity-color, #2a3a5c);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.perk-game-card-mini::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--rarity-color, #2a3a5c);
+}
+
+.perk-game-card-mini.used {
+  opacity: 0.3;
+  filter: grayscale(0.6);
+}
+
+.perk-card-piece-sm {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.perk-card-mini-title {
+  font-weight: 600;
+  color: #b0b8d0;
+  font-size: 0.72rem;
+}
+
+.perk-card-mini-uses {
+  font-size: 0.65rem;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+/* Hide old perk styles */
+.perk-card { display: none !important; }
+.perk-card-mini { display: none !important; }
+.perk-icon { display: none !important; }
+.perk-activate-btn { display: none !important; }
+.perk-used-tag { display: none !important; }
+.perk-info { display: none !important; }
+.perk-mini-icon { display: none !important; }
+.perk-mini-name { display: none !important; }
+.perk-mini-used { display: none !important; }

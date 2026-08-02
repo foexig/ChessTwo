@@ -183,7 +183,6 @@ function renderCardGrid() {
     if (!perk) return;
     const rarity = RARITIES[card.rarity];
     const isDrafted = draftedPerks.some(d => d.cardIndex === idx);
-    const showRarity = selectedCharacter && selectedCharacter.ability === 'see_rarities';
 
     const cardEl = document.createElement('div');
     cardEl.className = `draft-card ${isDrafted ? 'drafted' : ''}`;
@@ -192,11 +191,9 @@ function renderCardGrid() {
 
     const pieceImg = perkPieceImg(card.perkId, myColor);
     const pieceHTML = pieceImg ? `<img src="${pieceImg}" class="draft-card-piece" alt="">` : '';
-    const rarityName = showRarity ? rarity.name : '???';
 
     cardEl.innerHTML = `
-      <div class="draft-card-rarity" style="color:${rarity.color}">${rarityName}</div>
-      <div class="draft-card-icon">${perk.icon}</div>
+      <div class="draft-card-rarity" style="color:${rarity.color}">${rarity.name}</div>
       ${pieceHTML}
       <div class="draft-card-name">${perk.name}</div>
       <div class="draft-card-desc">${perk.shortDesc}</div>
@@ -204,9 +201,7 @@ function renderCardGrid() {
     `;
 
     if (isDrafted) {
-      // Click to put back
       cardEl.title = 'Click to put back';
-      cardEl.style.cursor = 'pointer';
       cardEl.addEventListener('click', () => {
         draftedPerks = draftedPerks.filter(d => d.cardIndex !== idx);
         SoundFX.play('notify');
@@ -362,23 +357,29 @@ function renderPerks() {
     const isUsedUp = (perk.uses || 0) <= 0;
     const rarity = perk.rarity ? RARITIES[perk.rarity] : null;
     const rarityColor = rarity ? rarity.color : def.color;
-    const usesText = perk.uses > 1 ? ` (${perk.uses} left)` : '';
+    const rarityName = rarity ? rarity.name : '';
+    const rarityGlow = rarity ? rarity.glow : 'none';
+    const canActivate = !isUsedUp && myColor !== 's' && gameState && !gameState.isGameOver && gameState.turn === myColor;
+
+    const pieceImg = perkPieceImg(perk.id, myColor);
+    const pieceHTML = pieceImg ? `<img src="${pieceImg}" class="perk-card-piece" alt="">` : '';
 
     const card = document.createElement('div');
-    card.className = `perk-card ${isUsedUp ? 'used' : ''}`;
+    card.className = `perk-game-card ${isUsedUp ? 'used' : ''} ${canActivate ? 'clickable' : ''}`;
+    card.style.setProperty('--rarity-color', rarityColor);
+    card.style.setProperty('--rarity-glow', rarityGlow);
     card.innerHTML = `
-      <div class="perk-icon" style="color: ${rarityColor}">${def.icon}</div>
-      <div class="perk-info">
-        <div class="perk-name">${def.name}${usesText}</div>
-        <div class="perk-desc">${def.shortDesc}</div>
-      </div>
-      ${!isUsedUp && myColor !== 's' ? `<button class="btn btn-small perk-activate-btn" data-perk-id="${perk.id}">Activate</button>` : ''}
-      ${isUsedUp ? '<span class="perk-used-tag">Used</span>' : ''}
+      <div class="perk-card-rarity" style="color:${rarityColor}">${rarityName}</div>
+      ${pieceHTML}
+      <div class="perk-card-title">${def.name}</div>
+      <div class="perk-card-desc">${def.shortDesc}</div>
+      <div class="perk-card-uses" style="color:${rarityColor}">${isUsedUp ? 'Used up' : perk.uses + ' use' + (perk.uses > 1 ? 's' : '') + ' left'}</div>
     `;
-    const btn = card.querySelector('.perk-activate-btn');
-    if (btn) {
-      btn.addEventListener('click', (e) => { e.stopPropagation(); activatePerk(perk.id); });
+
+    if (canActivate) {
+      card.addEventListener('click', () => activatePerk(perk.id));
     }
+
     myPerksEl.appendChild(card);
   }
 
@@ -389,12 +390,20 @@ function renderPerks() {
     const isUsedUp = (perk.uses || 0) <= 0;
     const rarity = perk.rarity ? RARITIES[perk.rarity] : null;
     const rarityColor = rarity ? rarity.color : def.color;
+    const rarityName = rarity ? rarity.name : '';
+    const rarityGlow = rarity ? rarity.glow : 'none';
+
+    const pieceImg = perkPieceImg(perk.id, myColor === 'w' ? 'b' : 'w');
+    const pieceHTML = pieceImg ? `<img src="${pieceImg}" class="perk-card-piece-sm" alt="">` : '';
+
     const card = document.createElement('div');
-    card.className = `perk-card-mini ${isUsedUp ? 'used' : ''}`;
+    card.className = `perk-game-card-mini ${isUsedUp ? 'used' : ''}`;
+    card.style.setProperty('--rarity-color', rarityColor);
+    card.style.setProperty('--rarity-glow', rarityGlow);
     card.innerHTML = `
-      <span class="perk-mini-icon" style="color: ${rarityColor}">${def.icon}</span>
-      <span class="perk-mini-name">${def.name}</span>
-      ${isUsedUp ? '<span class="perk-mini-used">✓</span>' : ''}
+      ${pieceHTML}
+      <div class="perk-card-mini-title">${def.name}</div>
+      <div class="perk-card-mini-uses" style="color:${rarityColor}">${isUsedUp ? 'Used' : (perk.uses + 'x')}</div>
     `;
     oppPerksEl.appendChild(card);
   }

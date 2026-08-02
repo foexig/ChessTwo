@@ -100,26 +100,7 @@
     </div>
 
     <div class="game-layout">
-      <!-- Board Area -->
-      <div class="board-container">
-        <div class="player-bar">
-          <div class="player-bar-left">
-            <img id="avatarTop" class="player-avatar" src="/img/pieces/wK.svg" alt="">
-            <div id="playerTop" class="player-label">Black</div>
-          </div>
-          <div id="clockTop" class="clock-display hidden">--:--</div>
-        </div>
-        <div id="chessboard" class="chessboard"></div>
-        <div class="player-bar">
-          <div class="player-bar-left">
-            <img id="avatarBottom" class="player-avatar" src="/img/pieces/bK.svg" alt="">
-            <div id="playerBottom" class="player-label">White</div>
-          </div>
-          <div id="clockBottom" class="clock-display hidden">--:--</div>
-        </div>
-      </div>
-
-      <!-- Side Panel -->
+      <!-- Side Panel (LEFT) -->
       <div class="side-panel">
         <div class="perks-panel">
           <h3>Your Perks</h3>
@@ -144,6 +125,25 @@
             <input type="text" id="chatInput" placeholder="Type a message..." autocomplete="off">
             <button id="btnChatSend" class="btn btn-small btn-primary">Send</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Board Area (RIGHT) -->
+      <div class="board-container">
+        <div class="player-bar">
+          <div class="player-bar-left">
+            <img id="avatarTop" class="player-avatar" src="/img/pieces/wK.svg" alt="">
+            <div id="playerTop" class="player-label">Black</div>
+          </div>
+          <div id="clockTop" class="clock-display hidden">--:--</div>
+        </div>
+        <div id="chessboard" class="chessboard"></div>
+        <div class="player-bar">
+          <div class="player-bar-left">
+            <img id="avatarBottom" class="player-avatar" src="/img/pieces/bK.svg" alt="">
+            <div id="playerBottom" class="player-label">White</div>
+          </div>
+          <div id="clockBottom" class="clock-display hidden">--:--</div>
         </div>
       </div>
     </div>
