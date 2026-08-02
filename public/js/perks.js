@@ -37,11 +37,11 @@ const PERKS = [
   },
   {
     id: 'pawn-blitz',
-    name: 'Pawn Blitz',
+    name: 'Forward Charge',
     icon: '⚡',
     color: '#fdcb6e',
-    description: 'One of your pawns can advance 3 squares on its first move.',
-    shortDesc: 'Pawn moves 3 squares',
+    description: 'Your pawn captures an enemy piece straight ahead (same file, 1 square forward).',
+    shortDesc: 'Pawn captures straight forward',
     targetPiece: 'p',
     needsTarget: true,
     uses: 1
@@ -171,16 +171,12 @@ function getPerkTargets(perkId, fromSquare, chessInstance, myColor) {
     }
 
     case 'pawn-blitz': {
-      // 3 squares forward if on starting rank and path is clear
-      const startRank = myColor === 'w' ? 6 : 1; // RANKS index (6=rank2 for white, 1=rank7 for black)
-      if (from.rank !== startRank) break;
+      // Capture straight forward (1 square ahead, same file, enemy piece)
       const dir = myColor === 'w' ? -1 : 1;
-      for (let step = 1; step <= 3; step++) {
-        const sq = coordsToSq(from.file, from.rank + dir * step);
-        if (!sq) break;
-        if (chess.get(sq)) break; // Path blocked
-        if (step <= 2) continue; // Normal moves (1,2) are not perk targets
-        targets.push(sq); // Only the 3rd square is the perk target
+      const sq = coordsToSq(from.file, from.rank + dir);
+      if (sq) {
+        const target = chess.get(sq);
+        if (target && target.color !== myColor) targets.push(sq);
       }
       break;
     }

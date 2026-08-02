@@ -156,17 +156,16 @@ function executePerk(game, socket, { perkId, from, to, pieceType }) {
     case 'pawn-blitz': {
       const piece = chess.get(from);
       if (!piece || piece.type !== 'p' || piece.color !== color) return { error: 'Select your pawn' };
-      const startRank = color === 'w' ? '2' : '7';
-      if (from[1] !== startRank) return { error: 'Pawn must be on starting rank' };
       const dir = color === 'w' ? 1 : -1;
-      if (from[0] !== to[0]) return { error: 'Must move straight forward' };
-      if (parseInt(to[1]) - parseInt(from[1]) !== dir * 3) return { error: 'Must be exactly 3 squares forward' };
-      const mid1 = from[0] + (parseInt(from[1]) + dir);
-      const mid2 = from[0] + (parseInt(from[1]) + dir * 2);
-      if (chess.get(mid1) || chess.get(mid2)) return { error: 'Path is blocked' };
+      // Must be 1 square straight forward
+      if (from[0] !== to[0]) return { error: 'Must be same file (straight forward)' };
+      if (parseInt(to[1]) - parseInt(from[1]) !== dir) return { error: 'Must be exactly 1 square forward' };
+      const target = chess.get(to);
+      if (!target || target.color === color) return { error: 'No enemy piece to capture there' };
       chess.remove(from);
+      chess.remove(to);
       chess.put({ type: 'p', color }, to);
-      log.from = from; log.to = to; log.san = `${from}--${to}`;
+      log.from = from; log.to = to; log.san = `${from}x${to}`;
       break;
     }
     case 'bishop-warp': {
