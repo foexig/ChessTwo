@@ -100,8 +100,8 @@
     </div>
 
     <div class="game-layout">
-      <!-- Side Panel (LEFT) -->
-      <div class="side-panel">
+      <!-- LEFT: Perks only -->
+      <div class="side-panel side-panel-left">
         <div class="perks-panel">
           <h3>Your Perks</h3>
           <div id="myPerks" class="perk-cards"></div>
@@ -110,25 +110,9 @@
           <h3>Opponent Perks</h3>
           <div id="oppPerks" class="perk-cards-mini"></div>
         </div>
-        <div class="status-panel">
-          <h3>Status</h3>
-          <div id="gameStatus" class="game-status">Waiting for opponent...</div>
-        </div>
-        <div class="move-history-panel">
-          <h3>Moves</h3>
-          <div id="moveHistory" class="move-history"></div>
-        </div>
-        <div class="chat-panel">
-          <h3>Chat</h3>
-          <div id="chatMessages" class="chat-messages"></div>
-          <div class="chat-input-row">
-            <input type="text" id="chatInput" placeholder="Type a message..." autocomplete="off">
-            <button id="btnChatSend" class="btn btn-small btn-primary">Send</button>
-          </div>
-        </div>
       </div>
 
-      <!-- Board Area (RIGHT) -->
+      <!-- CENTER: Board -->
       <div class="board-container">
         <div class="player-bar">
           <div class="player-bar-left">
@@ -144,6 +128,26 @@
             <div id="playerBottom" class="player-label">White</div>
           </div>
           <div id="clockBottom" class="clock-display hidden">--:--</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Status, Moves, Chat -->
+      <div class="side-panel side-panel-right">
+        <div class="status-panel">
+          <h3>Status</h3>
+          <div id="gameStatus" class="game-status">Waiting for opponent...</div>
+        </div>
+        <div class="move-history-panel">
+          <h3>Moves</h3>
+          <div id="moveHistory" class="move-history"></div>
+        </div>
+        <div class="chat-panel">
+          <h3>Chat</h3>
+          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-input-row">
+            <input type="text" id="chatInput" placeholder="Type a message..." autocomplete="off">
+            <button id="btnChatSend" class="btn btn-small btn-primary">Send</button>
+          </div>
         </div>
       </div>
     </div>
