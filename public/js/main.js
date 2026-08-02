@@ -1,4 +1,4 @@
-// main.js — Client-side game logic, Socket.io, UI, Perks, Sound, Profile
+// main.js — Client-side game logic, Socket.io, UI, Draft, Perks, Sound, Profile
 
 const socket = io();
 let board = null;
@@ -17,6 +17,15 @@ let activePerk = null;
 let perkFromSquare = null;
 let perkTargets = [];
 let playerProfile = { name: '', avatar: '' };
+
+// --- Draft state ---
+let draftPhase = 'none'; // 'none', 'character', 'cards', 'waiting'
+let selectedCharacter = null;
+let draftCards = [];
+let draftedPerks = [];
+let draftPicksMax = 3;
+let rerollsLeft = 0;
+let characterChosen = false;
 
 // --- DOM ---
 const lobby = document.getElementById('lobby');
@@ -57,6 +66,20 @@ const btnSound = document.getElementById('btnSound');
 const playerNameInput = document.getElementById('playerNameInput');
 const avatarInput = document.getElementById('avatarInput');
 const avatarPreview = document.getElementById('avatarPreview');
+
+// --- Draft DOM ---
+const draftOverlay = document.getElementById('draftOverlay');
+const charSelectPhase = document.getElementById('charSelectPhase');
+const cardDraftPhase = document.getElementById('cardDraftPhase');
+const draftWaitingPhase = document.getElementById('draftWaitingPhase');
+const charGrid = document.getElementById('charGrid');
+const charDescription = document.getElementById('charDescription');
+const btnConfirmChar = document.getElementById('btnConfirmChar');
+const cardGrid = document.getElementById('cardGrid');
+const draftedCardsEl = document.getElementById('draftedCards');
+const picksRemainingEl = document.getElementById('picksRemaining');
+const btnReroll = document.getElementById('btnReroll');
+const btnConfirmDraft = document.getElementById('btnConfirmDraft');
 
 // --- Sound toggle ---
 btnSound.addEventListener('click', () => {
@@ -114,13 +137,152 @@ document.querySelectorAll('.tc-btn').forEach(btn => {
   });
 });
 
+// ==================== DRAFT SYSTEM ====================
+
+function renderCharGrid() {
+  charGrid.innerHTML = '';
+  CHARACTERS.forEach(char => {
+    const card = document.createElement('div');
+    card.className = 'char-card';
+    card.style.setProperty('--char-color', char.color);
+    card.innerHTML = `
+      <div class="char-icon">${char.icon}</div>
+      <div class="char-name">${char.name}</div>
+    `;
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      selectedCharacter = char;
+      charDescription.innerHTML = `<strong style="color:${char.color}">${char.name}</strong> — ${char.description}`;
+      btnConfirmChar.disabled = false;
+      SoundFX.play('notify');
+    });
+    charGrid.appendChild(card);
+  });
+}
+
+btnConfirmChar.addEventListener('click', () => {
+  if (!selectedCharacter) return;
+  characterChosen = true;
+  SoundFX.play('game-start');
+
+  // Determine draft parameters based on character
+  const cardCount = selectedCharacter.ability === 'extra_cards' ? 7 : 6;
+  draftPicksMax = selectedCharacter.ability === 'extra_picks' ? 4 : 3;
+  rerollsLeft = selectedCharacter.ability === 'rerolls' ? selectedCharacter.value : 1;
+
+  // Generate cards
+  draftCards = rollDraftCards(cardCount, selectedCharacter);
+  draftedPerks = [];
+
+  // Switch to card draft phase
+  charSelectPhase.classList.add('hidden');
+  cardDraftPhase.classList.remove('hidden');
+  draftPhase = 'cards';
+  renderCardGrid();
+  updateDraftUI();
+});
+
+function renderCardGrid() {
+  cardGrid.innerHTML = '';
+  draftCards.forEach((card, idx) => {
+    const perk = PERK_MAP[card.perkId];
+    if (!perk) return;
+    const rarity = RARITIES[card.rarity];
+    const isDrafted = draftedPerks.some(d => d.cardIndex === idx);
+    const showRarity = selectedCharacter && selectedCharacter.ability === 'see_rarities';
+
+    const cardEl = document.createElement('div');
+    cardEl.className = `draft-card ${isDrafted ? 'drafted' : ''}`;
+    cardEl.style.setProperty('--rarity-color', rarity.color);
+    cardEl.style.setProperty('--rarity-glow', rarity.glow);
+
+    const pieceImg = perkPieceImg(card.perkId, myColor);
+    const pieceHTML = pieceImg ? `<img src="${pieceImg}" class="draft-card-piece" alt="">` : '';
+    const rarityName = showRarity ? rarity.name : '???';
+
+    cardEl.innerHTML = `
+      <div class="draft-card-rarity" style="color:${rarity.color}">${rarityName}</div>
+      <div class="draft-card-icon">${perk.icon}</div>
+      ${pieceHTML}
+      <div class="draft-card-name">${perk.name}</div>
+      <div class="draft-card-desc">${perk.shortDesc}</div>
+      <div class="draft-card-uses" style="color:${rarity.color}">${rarity.uses} use${rarity.uses > 1 ? 's' : ''}</div>
+    `;
+
+    if (!isDrafted && draftedPerks.length < draftPicksMax) {
+      cardEl.addEventListener('click', () => {
+        draftedPerks.push({ ...card, cardIndex: idx });
+        SoundFX.play('capture');
+        renderCardGrid();
+        updateDraftUI();
+      });
+    }
+
+    cardGrid.appendChild(cardEl);
+  });
+}
+
+function updateDraftUI() {
+  const remaining = draftPicksMax - draftedPerks.length;
+  picksRemainingEl.textContent = `Picks: ${remaining}`;
+  btnReroll.textContent = `Reroll (${rerollsLeft})`;
+  btnReroll.disabled = rerollsLeft <= 0 || draftedPerks.length > 0;
+  btnConfirmDraft.disabled = draftedPerks.length !== draftPicksMax;
+
+  // Render drafted summary
+  draftedCardsEl.innerHTML = '';
+  for (let i = 0; i < draftPicksMax; i++) {
+    const slot = document.createElement('div');
+    const perk = draftedPerks[i];
+    if (perk) {
+      const def = PERK_MAP[perk.perkId];
+      const rarity = RARITIES[perk.rarity];
+      slot.className = 'drafted-slot';
+      slot.innerHTML = `<span style="color:${rarity.color}">${def.icon}</span> ${def.name}`;
+    } else {
+      slot.className = 'drafted-slot empty';
+      slot.textContent = 'Empty slot';
+    }
+    draftedCardsEl.appendChild(slot);
+  }
+}
+
+btnReroll.addEventListener('click', () => {
+  if (rerollsLeft <= 0 || draftedPerks.length > 0) return;
+  rerollsLeft--;
+  const cardCount = selectedCharacter.ability === 'extra_cards' ? 7 : 6;
+  draftCards = rollDraftCards(cardCount, selectedCharacter);
+  SoundFX.play('notify');
+  renderCardGrid();
+  updateDraftUI();
+});
+
+btnConfirmDraft.addEventListener('click', () => {
+  if (draftedPerks.length !== draftPicksMax) return;
+  SoundFX.play('game-start');
+
+  // Apply character bonuses and send to server
+  const perksData = applyCharacterBonuses(draftedPerks, selectedCharacter);
+  socket.emit('draft:complete', {
+    characterId: selectedCharacter.id,
+    perks: perksData
+  });
+
+  // Show waiting phase
+  cardDraftPhase.classList.add('hidden');
+  draftWaitingPhase.classList.remove('hidden');
+  draftPhase = 'waiting';
+});
+
+// ==================== GAME UI ====================
+
 // --- Setup player bars with name + avatar ---
 function setupPlayerBars(color, profiles) {
   const myProfile = profiles && profiles[color] ? profiles[color] : { name: color === 'w' ? 'White' : 'Black', avatar: '' };
   const oppColor = color === 'w' ? 'b' : 'w';
   const oppProfile = profiles && profiles[oppColor] ? profiles[oppColor] : { name: oppColor === 'w' ? 'White' : 'Black', avatar: '' };
 
-  // Bottom = me, Top = opponent
   if (color === 'w' || color === 'b') {
     playerBottom.textContent = `${myProfile.name} (${color === 'w' ? 'White' : 'Black'})`;
     playerTop.textContent = `${oppProfile.name}`;
@@ -163,10 +325,6 @@ function hideGameOverBanner() { gameOverBanner.classList.add('hidden'); }
 
 // --- Sound for moves ---
 function playMoveSound(move, state) {
-  const isMyMove = move.color !== myColor; // move.color is the color that moved; if not mine, opponent moved
-  // Actually chess.js move.color is the color of the player who moved
-  // If it's not my turn now, the opponent just moved (or I just moved)
-  // Let's use a simpler approach: if the move was made by my color, play move-self, else move-opponent
   const moverColor = move.color;
   const isSelf = moverColor === myColor;
 
@@ -191,16 +349,21 @@ function renderPerks() {
   for (const perk of myPerks) {
     const def = PERK_MAP[perk.id];
     if (!def) continue;
+    const isUsedUp = (perk.uses || 0) <= 0;
+    const rarity = perk.rarity ? RARITIES[perk.rarity] : null;
+    const rarityColor = rarity ? rarity.color : def.color;
+    const usesText = perk.uses > 1 ? ` (${perk.uses} left)` : '';
+
     const card = document.createElement('div');
-    card.className = `perk-card ${perk.used ? 'used' : ''}`;
+    card.className = `perk-card ${isUsedUp ? 'used' : ''}`;
     card.innerHTML = `
-      <div class="perk-icon" style="color: ${def.color}">${def.icon}</div>
+      <div class="perk-icon" style="color: ${rarityColor}">${def.icon}</div>
       <div class="perk-info">
-        <div class="perk-name">${def.name}</div>
+        <div class="perk-name">${def.name}${usesText}</div>
         <div class="perk-desc">${def.shortDesc}</div>
       </div>
-      ${!perk.used && myColor !== 's' ? `<button class="btn btn-small perk-activate-btn" data-perk-id="${perk.id}">Activate</button>` : ''}
-      ${perk.used ? '<span class="perk-used-tag">Used</span>' : ''}
+      ${!isUsedUp && myColor !== 's' ? `<button class="btn btn-small perk-activate-btn" data-perk-id="${perk.id}">Activate</button>` : ''}
+      ${isUsedUp ? '<span class="perk-used-tag">Used</span>' : ''}
     `;
     const btn = card.querySelector('.perk-activate-btn');
     if (btn) {
@@ -213,12 +376,15 @@ function renderPerks() {
   for (const perk of oppPerks) {
     const def = PERK_MAP[perk.id];
     if (!def) continue;
+    const isUsedUp = (perk.uses || 0) <= 0;
+    const rarity = perk.rarity ? RARITIES[perk.rarity] : null;
+    const rarityColor = rarity ? rarity.color : def.color;
     const card = document.createElement('div');
-    card.className = `perk-card-mini ${perk.used ? 'used' : ''}`;
+    card.className = `perk-card-mini ${isUsedUp ? 'used' : ''}`;
     card.innerHTML = `
-      <span class="perk-mini-icon" style="color: ${def.color}">${def.icon}</span>
+      <span class="perk-mini-icon" style="color: ${rarityColor}">${def.icon}</span>
       <span class="perk-mini-name">${def.name}</span>
-      ${perk.used ? '<span class="perk-mini-used">✓</span>' : ''}
+      ${isUsedUp ? '<span class="perk-mini-used">✓</span>' : ''}
     `;
     oppPerksEl.appendChild(card);
   }
@@ -226,7 +392,7 @@ function renderPerks() {
 
 function activatePerk(perkId) {
   const perk = myPerks.find(p => p.id === perkId);
-  if (!perk || perk.used) return;
+  if (!perk || (perk.uses || 0) <= 0) return;
   if (!gameState || gameState.isGameOver) return;
   if (gameState.turn !== myColor) return;
 
@@ -266,10 +432,10 @@ function activatePerk(perkId) {
   activePerk = perkId;
   perkFromSquare = null;
   perkTargets = [];
-  perkModeText.textContent = `${def.icon} ${def.name} — Click your ${def.targetPiece === 'r' ? 'Rook' : def.targetPiece === 'k' ? 'King' : def.targetPiece === 'q' ? 'Queen' : def.targetPiece === 'p' ? 'Pawn' : def.targetPiece === 'b' ? 'Bishop' : def.targetPiece === 'n' ? 'Knight' : 'piece'}`;
+  perkModeText.textContent = `${def.name} — Select your ${def.targetPiece ? def.targetPiece.toUpperCase() : 'piece'}`;
   perkModeBanner.classList.remove('hidden');
-  board.clearSelection();
-  selectedSquare = null;
+  gameStatus.textContent = `${def.name}: Click your ${def.targetPiece ? def.targetPiece.toUpperCase() : 'piece'} to begin.`;
+  gameStatus.style.color = def.color;
 }
 
 function cancelPerkMode() {
@@ -278,31 +444,34 @@ function cancelPerkMode() {
   perkTargets = [];
   perkModeBanner.classList.add('hidden');
   board.clearSelection();
+  if (gameState) updateUI(gameState);
 }
+
 document.getElementById('btnCancelPerk').addEventListener('click', cancelPerkMode);
 
-// --- Click handler ---
+// --- Square click handling ---
 function handleSquareClick(sqName) {
   if (activePerk) { handlePerkClick(sqName); return; }
   if (!gameState || gameState.isGameOver) return;
   if (gameState.turn !== myColor) return;
+
   const piece = board.getPieceAt(sqName);
+
   if (selectedSquare) {
-    if (sqName === selectedSquare) { board.clearSelection(); selectedSquare = null; return; }
-    const isLegal = board.legalMoves.some(m => m.to === sqName);
-    if (isLegal) {
-      const fromPiece = board.getPieceAt(selectedSquare);
-      if (fromPiece && fromPiece[1] === 'P') {
-        const targetRank = sqName[1];
-        if ((fromPiece[0] === 'w' && targetRank === '8') || (fromPiece[0] === 'b' && targetRank === '1')) {
-          pendingPromotion = { from: selectedSquare, to: sqName };
-          promotionDialog.classList.remove('hidden');
-          board.clearSelection();
-          selectedSquare = null;
-          return;
-        }
+    if (sqName === selectedSquare) {
+      board.clearSelection();
+      selectedSquare = null;
+      return;
+    }
+    const moves = clientChess ? clientChess.moves({ square: selectedSquare, verbose: true }) : [];
+    const validMove = moves.find(m => m.to === sqName);
+    if (validMove) {
+      if (validMove.promotion) {
+        pendingPromotion = { from: selectedSquare, to: sqName };
+        promotionDialog.classList.remove('hidden');
+      } else {
+        socket.emit('game:move', { from: selectedSquare, to: sqName });
       }
-      socket.emit('game:move', { from: selectedSquare, to: sqName });
       board.clearSelection();
       selectedSquare = null;
     } else if (piece && piece[0] === myColor) { selectPiece(sqName); }
@@ -463,19 +632,14 @@ function updateClockDisplay(clocks, turn) {
   clockBottom.textContent = formatTime(bottomClockVal);
   clockTop.classList.toggle('active', turn === topColor);
   clockBottom.classList.toggle('active', turn === bottomColor);
-  const wasLow = clockTop.classList.contains('low-time');
   clockTop.classList.toggle('low-time', topClockVal < 20);
   clockBottom.classList.toggle('low-time', bottomClockVal < 20);
-  // Play tenseconds sound when crossing below 10
-  if (topClockVal < 10 && topClockVal > 0 && turn === topColor && !wasLow) SoundFX.play('tenseconds');
-  if (bottomClockVal < 10 && bottomClockVal > 0 && turn === bottomColor && !clockBottom.classList.contains('low-time-was')) {
-    clockBottom.classList.add('low-time-was');
-    SoundFX.play('tenseconds');
-  }
-  if (bottomClockVal >= 10) clockBottom.classList.remove('low-time-was');
+  if (topClockVal < 10 && topClockVal > 0 && turn === topColor) SoundFX.play('tenseconds');
+  if (bottomClockVal < 10 && bottomClockVal > 0 && turn === bottomColor) SoundFX.play('tenseconds');
 }
 
-// --- Socket events ---
+// ==================== SOCKET EVENTS ====================
+
 socket.on('game:created', ({ gameId: id, color }) => {
   gameId = id; myColor = color;
   showGameScreen(id, color);
@@ -494,10 +658,28 @@ socket.on('game:joined', ({ gameId: id, color }) => {
 });
 
 socket.on('game:opponent_joined', () => {
-  gameStatus.textContent = 'Opponent joined! Game on.';
+  gameStatus.textContent = 'Opponent joined! Starting draft...';
   gameStatus.style.color = '#4ecca3';
   codeModal.classList.add('hidden');
   SoundFX.play('game-start');
+});
+
+// --- Draft events ---
+socket.on('draft:start', () => {
+  draftOverlay.classList.remove('hidden');
+  charSelectPhase.classList.remove('hidden');
+  cardDraftPhase.classList.add('hidden');
+  draftWaitingPhase.classList.add('hidden');
+  draftPhase = 'character';
+  selectedCharacter = null;
+  draftedPerks = [];
+  renderCharGrid();
+});
+
+socket.on('draft:complete', () => {
+  // Both players finished — hide overlay, game starts
+  draftOverlay.classList.add('hidden');
+  draftPhase = 'none';
 });
 
 socket.on('game:move', (move) => {
@@ -515,7 +697,6 @@ socket.on('game:state', (state) => {
     oppPerks = state.perks[oppColor] || [];
     renderPerks();
   }
-  // Update player bars with profiles
   if (state.profiles) {
     setupPlayerBars(myColor, state.profiles);
   }
@@ -543,59 +724,64 @@ socket.on('game:timeout', ({ winner }) => {
   const loserName = winner === 'w' ? 'Black' : 'White';
   gameStatus.textContent = `${winnerName} wins on time!`;
   gameStatus.style.color = '#e94560';
-  showGameOverBanner('⏱️', `${winnerName} Wins!`, `${loserName} ran out of time`, winner);
+  showGameOverBanner('⏰', `${winnerName} Wins!`, `${loserName} ran out of time`, winner);
 });
 
-socket.on('perk:used', ({ perkId, player }) => {
-  const def = PERK_MAP[perkId];
-  if (!def) return;
-  SoundFX.play('capture');
-  const playerName = player === 'w' ? 'White' : 'Black';
-  if (player === myColor) {
-    gameStatus.textContent = `You used ${def.icon} ${def.name}!`;
-    gameStatus.style.color = '#4ecca3';
-  } else {
-    gameStatus.textContent = `${playerName} used ${def.icon} ${def.name}!`;
-    gameStatus.style.color = '#e94560';
+socket.on('perk:activated', ({ perkLog, perks, fen }) => {
+  if (gameState && fen) {
+    gameState.fen = fen;
+    if (window.ChessJS && ChessJS.Chess) {
+      try { clientChess = new ChessJS.Chess(fen); } catch (e) { clientChess = null; }
+    }
   }
-});
-
-socket.on('perk:double_move_first', ({ color }) => {
-  if (color === myColor) {
-    gameStatus.textContent = 'Double Move! Make another move.';
-    gameStatus.style.color = '#00cec9';
+  if (perks) {
+    myPerks = perks[myColor] || myPerks;
+    const oppColor = myColor === 'w' ? 'b' : 'w';
+    oppPerks = perks[oppColor] || oppPerks;
+    renderPerks();
+  }
+  if (perkLog && perkLog.length > 0) {
+    const last = perkLog[perkLog.length - 1];
+    gameStatus.textContent = `Perk used: ${last.san || 'ability'}`;
+    gameStatus.style.color = '#fdcb6e';
     SoundFX.play('notify');
+    setTimeout(() => { if (gameState) updateUI(gameState); }, 2000);
+  }
+  if (gameState) {
+    board.update(gameState.fen, {
+      lastMove: gameState.history && gameState.history.length > 0 ? gameState.history[gameState.history.length - 1] : null,
+      checkSquare: gameState.isCheck ? getKingSquare(gameState.fen, gameState.turn) : null
+    });
   }
 });
 
-socket.on('game:rematch_request', ({ requestedBy }) => {
-  if (requestedBy !== myColor) {
-    const requesterName = requestedBy === 'w' ? 'White' : 'Black';
-    rematchDialogText.textContent = `${requesterName} wants a rematch`;
-    rematchDialog.classList.remove('hidden');
-    SoundFX.play('notify');
-  }
-});
-
-socket.on('game:rematch', () => {
-  gameStatus.textContent = 'Rematch! New perks rolled!';
-  gameStatus.style.color = '#4ecca3';
-  rematchPending = false;
-  btnRematch.textContent = 'Request Rematch';
-  btnRematch.disabled = false;
-  rematchDialog.classList.add('hidden');
-  hideGameOverBanner();
-  cancelPerkMode();
-  SoundFX.play('game-start');
+socket.on('game:rematch_requested', () => {
+  rematchDialogText.textContent = 'Opponent wants a rematch';
+  rematchDialog.classList.remove('hidden');
 });
 
 socket.on('game:rematch_declined', () => {
-  gameStatus.textContent = 'Rematch declined.';
-  gameStatus.style.color = '#e94560';
-  rematchPending = false;
+  rematchDialog.classList.add('hidden');
   btnRematch.textContent = 'Request Rematch';
   btnRematch.disabled = false;
-  setTimeout(() => updateUI(gameState), 2000);
+  rematchPending = false;
+});
+
+socket.on('game:rematch_accepted', () => {
+  rematchDialog.classList.add('hidden');
+  btnRematch.textContent = 'Request Rematch';
+  btnRematch.disabled = false;
+  rematchPending = false;
+  hideGameOverBanner();
+  // Reset draft for rematch
+  draftOverlay.classList.remove('hidden');
+  charSelectPhase.classList.remove('hidden');
+  cardDraftPhase.classList.add('hidden');
+  draftWaitingPhase.classList.add('hidden');
+  draftPhase = 'character';
+  selectedCharacter = null;
+  draftedPerks = [];
+  renderCharGrid();
 });
 
 socket.on('game:error', ({ message }) => {

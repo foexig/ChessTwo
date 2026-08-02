@@ -3,7 +3,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const { Chess } = require('chess.js');
-const { PERKS, PERK_MAP, rollPerks, getResurrectSquares } = require('./public/js/perks.js');
+const { PERKS, PERK_MAP, getResurrectSquares } = require('./public/js/perks.js');
+const { CHARACTERS, CHARACTER_MAP, RARITIES, applyCharacterBonuses } = require('./public/js/draft.js');
 
 const app = express();
 const server = http.createServer(app);
@@ -54,7 +55,8 @@ function getGameState(gameId) {
     rematchRequest: game.rematchRequest || null,
     perks: game.perks || null,
     perkLog: game.perkLog || [],
-    profiles: game.profiles || null
+    profiles: game.profiles || null,
+    characters: game.characters || null
   };
 }
 
@@ -107,7 +109,7 @@ function executePerk(game, socket, { perkId, from, to, pieceType }) {
   const chess = game.chess;
   const color = socket.color;
   const playerPerks = game.perks[color];
-  const perkData = playerPerks.find(p => p.id === perkId && !p.used);
+  const perkData = playerPerks.find(p => p.id === perkId && (p.uses || 0) > 0);
   if (!perkData) return { error: 'Perk not available' };
 
   const perk = PERK_MAP[perkId];
@@ -191,7 +193,7 @@ function executePerk(game, socket, { perkId, from, to, pieceType }) {
     }
     case 'double-move': {
       game.doubleMoveActive = color;
-      perkData.used = true;
+      perkData.uses = (perkData.uses || 1) - 1;
       log.san = 'Double Move activated';
       game.perkLog = game.perkLog || [];
       game.perkLog.push(log);
@@ -219,11 +221,35 @@ function executePerk(game, socket, { perkId, from, to, pieceType }) {
       return { error: 'Unknown perk' };
   }
 
-  perkData.used = true;
+  perkData.uses = (perkData.uses || 1) - 1;
   switchTurn(chess);
   game.perkLog = game.perkLog || [];
   game.perkLog.push(log);
   return { success: true };
+}
+
+// --- Start game after both drafts complete ---
+function startGame(gameId) {
+  const game = games.get(gameId);
+  if (!game) return;
+
+  // Apply Speedster time bonus
+  for (const color of ['w', 'b']) {
+    const char = game.characters[color];
+    if (char && CHARACTER_MAP[char] && CHARACTER_MAP[char].ability === 'time_bonus') {
+      const bonus = CHARACTER_MAP[char].value;
+      game.clocks[color] = Math.floor(game.clocks[color] * (1 + bonus));
+    }
+  }
+
+  // Reset clock state
+  game.lastClockUpdate = null;
+
+  // Send game state to both players
+  io.to(gameId).emit('draft:complete', {});
+  io.to(gameId).emit('game:state', getGameState(gameId));
+
+  console.log(`[GAME_START] ${gameId} — characters: w=${game.characters.w}, b=${game.characters.b}`);
 }
 
 io.on('connection', (socket) => {
@@ -242,9 +268,11 @@ io.on('connection', (socket) => {
       clocks: { w: tc.initial, b: tc.initial },
       lastClockUpdate: null,
       rematchRequest: null,
-      perks: { w: rollPerks(3), b: rollPerks(3) },
+      perks: null,  // Set after draft
       perkLog: [],
       doubleMoveActive: null,
+      draftComplete: { w: false, b: false },
+      characters: { w: null, b: null },
       profiles: {
         w: { name: name || 'White', avatar: avatar || '' },
         b: { name: 'Black', avatar: '' }
@@ -272,10 +300,11 @@ io.on('connection', (socket) => {
       socket.gameId = gameId;
       socket.color = 'b';
       socket.emit('game:joined', { gameId, color: 'b' });
-      socket.emit('game:state', getGameState(gameId));
       io.to(game.players.w).emit('game:opponent_joined', { color: 'b' });
-      io.to(gameId).emit('game:state', getGameState(gameId));
-      console.log(`[JOIN] ${socket.id} joined ${gameId} as black name=${name || 'unnamed'}`);
+
+      // Start draft phase for both players
+      io.to(gameId).emit('draft:start', {});
+      console.log(`[DRAFT_START] ${gameId} — both players drafting`);
     } else {
       game.spectators.push(socket.id);
       socket.join(gameId);
@@ -284,6 +313,25 @@ io.on('connection', (socket) => {
       socket.emit('game:joined', { gameId, color: 's' });
       socket.emit('game:state', getGameState(gameId));
       console.log(`[JOIN] ${socket.id} joined ${gameId} as spectator`);
+    }
+  });
+
+  // --- Draft: player completes their draft ---
+  socket.on('draft:complete', ({ characterId, perks }) => {
+    const game = games.get(socket.gameId);
+    if (!game) { socket.emit('game:error', { message: 'No active game' }); return; }
+    if (game.draftComplete[socket.color]) return; // Already completed
+
+    game.characters[socket.color] = characterId;
+    game.perks = game.perks || { w: [], b: [] };
+    game.perks[socket.color] = perks;
+    game.draftComplete[socket.color] = true;
+
+    console.log(`[DRAFT_COMPLETE] ${socket.gameId} — ${socket.color} drafted ${perks.length} perks with ${characterId}`);
+
+    // If both players have drafted, start the game
+    if (game.draftComplete.w && game.draftComplete.b) {
+      startGame(socket.gameId);
     }
   });
 
@@ -311,7 +359,6 @@ io.on('connection', (socket) => {
           game.chess.load(parts.join(' '));
           io.to(socket.gameId).emit('game:state', getGameState(socket.gameId));
           io.to(socket.gameId).emit('game:move', move);
-          io.to(socket.gameId).emit('perk:double_move_first', { color: socket.color });
           return;
         }
 
@@ -349,9 +396,12 @@ io.on('connection', (socket) => {
     }
     if (game.timeControl.initial > 0) game.lastClockUpdate = Date.now();
 
-    io.to(socket.gameId).emit('perk:used', {
-      perkId: data.perkId, player: socket.color,
-      from: data.from, to: data.to, pieceType: data.pieceType
+    io.to(socket.gameId).emit('perk:activated', {
+      perkId: data.perkId,
+      player: socket.color,
+      perks: game.perks,
+      fen: game.chess.fen(),
+      perkLog: game.perkLog
     });
 
     if (!result.skipTurnSwitch) {
@@ -376,6 +426,7 @@ io.on('connection', (socket) => {
       if (game.chess.isGameOver() || game.chessGameEnded) continue;
       if (!game.players.w || !game.players.b) continue;
       if (!game.lastClockUpdate) continue;
+      if (!game.draftComplete.w || !game.draftComplete.b) continue;
 
       const now = Date.now();
       const elapsed = (now - game.lastClockUpdate) / 1000;
@@ -411,7 +462,7 @@ io.on('connection', (socket) => {
       return;
     }
     game.rematchRequest = { requestedBy: socket.color, timestamp: Date.now() };
-    io.to(socket.gameId).emit('game:rematch_request', { requestedBy: socket.color });
+    io.to(socket.gameId).emit('game:rematch_requested', { requestedBy: socket.color });
   });
 
   socket.on('game:rematch_accept', () => {
@@ -423,17 +474,21 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Reset game for rematch — trigger draft again
     game.chess = new Chess();
     game.chessGameEnded = false;
     game.clocks = { w: game.timeControl.initial, b: game.timeControl.initial };
     game.lastClockUpdate = null;
     game.rematchRequest = null;
-    game.perks = { w: rollPerks(3), b: rollPerks(3) };
+    game.perks = null;
     game.perkLog = [];
     game.doubleMoveActive = null;
+    game.draftComplete = { w: false, b: false };
+    game.characters = { w: null, b: null };
 
-    io.to(socket.gameId).emit('game:state', getGameState(socket.gameId));
-    io.to(socket.gameId).emit('game:rematch');
+    io.to(socket.gameId).emit('game:rematch_accepted', {});
+    io.to(socket.gameId).emit('draft:start', {});
+    console.log(`[REMATCH_DRAFT] ${socket.gameId} — new draft starting`);
   });
 
   socket.on('game:rematch_decline', () => {

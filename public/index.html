@@ -49,6 +49,42 @@
     </div>
   </div>
 
+  <!-- Draft Overlay — shown before game starts -->
+  <div id="draftOverlay" class="draft-overlay hidden">
+    <div class="draft-content">
+      <!-- Phase 1: Character Selection -->
+      <div id="charSelectPhase" class="draft-phase">
+        <h2 class="draft-title">Choose Your Character</h2>
+        <div id="charGrid" class="char-grid"></div>
+        <div id="charDescription" class="char-description">Select a character to see their meta-perk.</div>
+        <button id="btnConfirmChar" class="btn btn-primary" disabled>Confirm Character</button>
+      </div>
+
+      <!-- Phase 2: Card Draft -->
+      <div id="cardDraftPhase" class="draft-phase hidden">
+        <div class="draft-header">
+          <h2 class="draft-title">Draft Your Perks</h2>
+          <div class="draft-info">
+            <span id="picksRemaining" class="picks-remaining">Picks: 3</span>
+            <button id="btnReroll" class="btn btn-small btn-secondary">Reroll (0)</button>
+          </div>
+        </div>
+        <div id="cardGrid" class="card-grid"></div>
+        <div id="draftedCards" class="drafted-cards"></div>
+        <button id="btnConfirmDraft" class="btn btn-primary" disabled>Confirm Draft</button>
+      </div>
+
+      <!-- Phase 3: Waiting -->
+      <div id="draftWaitingPhase" class="draft-phase hidden">
+        <h2 class="draft-title">Waiting for opponent...</h2>
+        <div class="draft-waiting">
+          <div class="loading-spinner"></div>
+          <p>Opponent is still drafting.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Game Screen -->
   <div id="game" class="screen hidden">
     <div class="game-header">
@@ -184,6 +220,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/chess-lib.js"></script>
   <script src="/js/perks.js"></script>
+  <script src="/js/draft.js"></script>
   <script src="/js/sound.js"></script>
   <script src="/js/chessboard.js"></script>
   <script src="/js/main.js"></script>
