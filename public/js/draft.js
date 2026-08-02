@@ -1,14 +1,10 @@
 // draft.js — Character selection + Perk draft system
 // Loaded after perks.js, before main.js
-// Does NOT redeclare FILES/RANKS (those belong to chessboard.js)
+// Does NOT redeclare FILES/RANKS or PERKS/PERK_MAP (those belong to perks.js)
 
-// In Node.js, load perks.js for PERKS/PERK_MAP. In browser, they are global.
-let PERKS, PERK_MAP;
-if (typeof module !== "undefined") {
-  const perksModule = require("./perks.js");
-  PERKS = perksModule.PERKS;
-  PERK_MAP = perksModule.PERK_MAP;
-}
+// In Node.js, require perks.js. In browser, PERKS/PERK_MAP are global from perks.js.
+const _PERKS = typeof module !== 'undefined' ? require('./perks.js').PERKS : PERKS;
+const _PERK_MAP = typeof module !== 'undefined' ? require('./perks.js').PERK_MAP : PERK_MAP;
 
 // --- 8 Characters with meta-perks ---
 const CHARACTERS = [
@@ -81,21 +77,18 @@ function rollRarity() {
 
 // --- Generate draft cards (array of { perkId, rarity }) ---
 function rollDraftCards(count, character, existingPool) {
-  const pool = existingPool || PERKS.map(p => p.id);
+  const pool = existingPool || _PERKS.map(p => p.id);
   const cards = [];
 
   for (let i = 0; i < count; i++) {
     const perkId = pool[Math.floor(Math.random() * pool.length)];
     let rarity = rollRarity();
 
-    // Character abilities that affect card generation
     if (character) {
-      // Lucky: one guaranteed Epic+
       if (character.ability === 'guaranteed_high' && i === 0) {
         const highRarities = ['epic', 'legendary', 'mythic'];
         rarity = highRarities[Math.floor(Math.random() * highRarities.length)];
       }
-      // Necromancer: always have resurrect
       if (character.ability === 'guaranteed_resurrect' && i === 0) {
         cards.push({ perkId: 'resurrect', rarity });
         continue;
@@ -110,7 +103,7 @@ function rollDraftCards(count, character, existingPool) {
 
 // --- Get piece SVG path for a perk (for card display) ---
 function perkPieceImg(perkId, color) {
-  const perk = PERK_MAP[perkId];
+  const perk = _PERK_MAP[perkId];
   if (!perk || !perk.targetPiece) return null;
   const prefix = color === 'w' ? 'w' : 'b';
   return `/img/pieces/${prefix}${perk.targetPiece.toUpperCase()}.svg`;
