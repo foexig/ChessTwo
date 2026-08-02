@@ -1,9 +1,11 @@
-// chessboard.js — Custom chessboard renderer with drag-and-drop + click-to-move
-// Uses Unicode chess pieces, renders from FEN, handles highlights
+// chessboard.js — Custom chessboard renderer with SVG pieces
+// Uses cburnett SVG pieces from Lichess (public domain)
 
-const PIECES = {
-  'wK': '♔', 'wQ': '♕', 'wR': '♖', 'wB': '♗', 'wN': '♘', 'wP': '♙',
-  'bK': '♚', 'bQ': '♛', 'bR': '♜', 'bB': '♝', 'bN': '♞', 'bP': '♟'
+const PIECE_IMAGES = {
+  'wK': '/img/pieces/wK.svg', 'wQ': '/img/pieces/wQ.svg', 'wR': '/img/pieces/wR.svg',
+  'wB': '/img/pieces/wB.svg', 'wN': '/img/pieces/wN.svg', 'wP': '/img/pieces/wP.svg',
+  'bK': '/img/pieces/bK.svg', 'bQ': '/img/pieces/bQ.svg', 'bR': '/img/pieces/bR.svg',
+  'bB': '/img/pieces/bB.svg', 'bN': '/img/pieces/bN.svg', 'bP': '/img/pieces/bP.svg'
 };
 
 const FILES = ['a','b','c','d','e','f','g','h'];
@@ -56,14 +58,12 @@ class ChessBoard {
     return board;
   }
 
-  // Convert display row/col to algebraic square name (handles flip)
   squareName(row, col) {
     const displayRow = this.flipped ? 7 - row : row;
     const displayCol = this.flipped ? 7 - col : col;
     return FILES[displayCol] + RANKS[displayRow];
   }
 
-  // Convert algebraic square name to FEN board indices (always standard, no flip)
   squareToBoard(sqName) {
     const col = FILES.indexOf(sqName[0]);
     const row = RANKS.indexOf(sqName[1]);
@@ -118,14 +118,14 @@ class ChessBoard {
         const { row: pr, col: pc } = this.squareToBoard(sqName);
         const piece = board[pr] && board[pr][pc];
         if (piece) {
-          const pieceEl = document.createElement('span');
+          const pieceEl = document.createElement('img');
           pieceEl.className = `piece ${piece[0] === 'w' ? 'white' : 'black'}`;
-          pieceEl.textContent = PIECES[piece];
+          pieceEl.src = PIECE_IMAGES[piece];
+          pieceEl.alt = piece;
+          pieceEl.draggable = this.interactive && this.isMyPiece(piece);
           pieceEl.dataset.piece = piece;
           pieceEl.dataset.square = sqName;
 
-          // Drag and drop
-          pieceEl.draggable = this.interactive && this.isMyPiece(piece);
           pieceEl.addEventListener('dragstart', (e) => this.onDragStart(e, sqName, pieceEl));
           pieceEl.addEventListener('dragend', (e) => this.onDragEnd(e));
           pieceEl.addEventListener('touchstart', (e) => this.onTouchStart(e, sqName), { passive: false });
@@ -194,7 +194,7 @@ class ChessBoard {
 
   update(fen, options = {}) {
     this.fen = fen;
-    if (options.lastMove) this.lastMove = options.lastMove;
+    if (options.lastMove !== undefined) this.lastMove = options.lastMove;
     if (options.checkSquare !== undefined) this.checkSquare = options.checkSquare;
     this.selectedSquare = null;
     this.legalMoves = [];

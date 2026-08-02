@@ -12,6 +12,22 @@
     <div class="lobby-card">
       <h1>♟️ Chess</h1>
       <p class="subtitle">Local Network Multiplayer</p>
+
+      <div class="time-control-section">
+        <label class="tc-label">Time Control</label>
+        <div class="time-options" id="timeOptions">
+          <button class="tc-btn" data-tc="1+0">1 min</button>
+          <button class="tc-btn" data-tc="3+0">3 min</button>
+          <button class="tc-btn" data-tc="3+2">3+2</button>
+          <button class="tc-btn" data-tc="5+0">5 min</button>
+          <button class="tc-btn" data-tc="5+3">5+3</button>
+          <button class="tc-btn" data-tc="10+0">10 min</button>
+          <button class="tc-btn" data-tc="15+10">15+10</button>
+          <button class="tc-btn" data-tc="30+0">30 min</button>
+          <button class="tc-btn active" data-tc="unlimited">∞ Unlimited</button>
+        </div>
+      </div>
+
       <div class="lobby-buttons">
         <button id="btnCreate" class="btn btn-primary">Create New Game</button>
       </div>
@@ -32,7 +48,7 @@
       </div>
       <div class="game-actions">
         <button id="btnResign" class="btn btn-small btn-danger">Resign</button>
-        <button id="btnRematch" class="btn btn-small btn-secondary">Rematch</button>
+        <button id="btnRematch" class="btn btn-small btn-secondary">Request Rematch</button>
         <button id="btnLeave" class="btn btn-small btn-secondary">Leave</button>
       </div>
     </div>
@@ -40,9 +56,15 @@
     <div class="game-layout">
       <!-- Board Area -->
       <div class="board-container">
-        <div id="playerBlack" class="player-label">Black</div>
+        <div class="player-bar">
+          <div id="playerBlack" class="player-label">Black</div>
+          <div id="clockBlack" class="clock-display hidden">--:--</div>
+        </div>
         <div id="chessboard" class="chessboard"></div>
-        <div id="playerWhite" class="player-label">White</div>
+        <div class="player-bar">
+          <div id="playerWhite" class="player-label">White</div>
+          <div id="clockWhite" class="clock-display hidden">--:--</div>
+        </div>
       </div>
 
       <!-- Side Panel -->
@@ -73,10 +95,22 @@
       <div class="promotion-content">
         <p>Promote to:</p>
         <div class="promotion-options">
-          <button data-piece="q" class="promotion-btn">♕</button>
-          <button data-piece="r" class="promotion-btn">♖</button>
-          <button data-piece="b" class="promotion-btn">♗</button>
-          <button data-piece="n" class="promotion-btn">♘</button>
+          <button data-piece="q" class="promotion-btn"><img src="/img/pieces/wQ.svg" alt="Q"></button>
+          <button data-piece="r" class="promotion-btn"><img src="/img/pieces/wR.svg" alt="R"></button>
+          <button data-piece="b" class="promotion-btn"><img src="/img/pieces/wB.svg" alt="B"></button>
+          <button data-piece="n" class="promotion-btn"><img src="/img/pieces/wN.svg" alt="N"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rematch Request Dialog -->
+    <div id="rematchDialog" class="rematch-dialog hidden">
+      <div class="rematch-content">
+        <h3>Rematch Request</h3>
+        <p id="rematchDialogText">Opponent wants a rematch</p>
+        <div class="rematch-actions">
+          <button id="btnAcceptRematch" class="btn btn-primary">Accept</button>
+          <button id="btnDeclineRematch" class="btn btn-secondary">Decline</button>
         </div>
       </div>
     </div>

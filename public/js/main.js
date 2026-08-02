@@ -7,7 +7,10 @@ let gameId = null;
 let gameState = null;
 let selectedSquare = null;
 let pendingPromotion = null;
-let clientChess = null; // chess.js instance for local move validation/highlights
+let clientChess = null;
+let selectedTimeControl = 'unlimited';
+let rematchPending = false; // true = I requested, waiting for opponent
+let localClocks = { w: 0, b: 0 };
 
 // --- DOM elements ---
 const lobby = document.getElementById('lobby');
@@ -22,6 +25,11 @@ const chatInput = document.getElementById('chatInput');
 const promotionDialog = document.getElementById('promotionDialog');
 const playerWhite = document.getElementById('playerWhite');
 const playerBlack = document.getElementById('playerBlack');
+const clockWhite = document.getElementById('clockWhite');
+const clockBlack = document.getElementById('clockBlack');
+const rematchDialog = document.getElementById('rematchDialog');
+const rematchDialogText = document.getElementById('rematchDialogText');
+const btnRematch = document.getElementById('btnRematch');
 
 // --- Code modal elements ---
 const codeModal = document.getElementById('codeModal');
@@ -43,6 +51,15 @@ board = new ChessBoard('chessboard', {
   }
 });
 
+// --- Time control selection ---
+document.querySelectorAll('.tc-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tc-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedTimeControl = btn.dataset.tc;
+  });
+});
+
 // --- Square click handler (click-to-move) ---
 function handleSquareClick(sqName) {
   if (!gameState || gameState.isGameOver) return;
@@ -57,7 +74,6 @@ function handleSquareClick(sqName) {
       return;
     }
 
-    // Check if it's a legal move using client-side chess.js
     const isLegal = board.legalMoves.some(m => m.to === sqName);
     if (isLegal) {
       const fromPiece = board.getPieceAt(selectedSquare);
@@ -75,7 +91,6 @@ function handleSquareClick(sqName) {
       board.clearSelection();
       selectedSquare = null;
     } else if (piece && piece[0] === myColor) {
-      // Select new piece
       selectPiece(sqName);
     } else {
       board.clearSelection();
@@ -92,7 +107,6 @@ function selectPiece(sqName) {
   selectedSquare = sqName;
   board.selectSquare(sqName);
 
-  // Use client-side chess.js to get legal moves from this square
   if (clientChess) {
     try {
       const moves = clientChess.moves({ square: sqName, verbose: true });
@@ -122,7 +136,7 @@ document.querySelectorAll('.promotion-btn').forEach(btn => {
 
 // --- Lobby ---
 document.getElementById('btnCreate').addEventListener('click', () => {
-  socket.emit('game:create');
+  socket.emit('game:create', { timeControl: selectedTimeControl });
 });
 
 document.getElementById('btnJoin').addEventListener('click', () => {
@@ -146,13 +160,29 @@ document.getElementById('btnResign').addEventListener('click', () => {
 });
 
 document.getElementById('btnRematch').addEventListener('click', () => {
-  socket.emit('game:rematch');
+  if (!rematchPending) {
+    socket.emit('game:rematch_request');
+    btnRematch.textContent = 'Rematch Requested...';
+    btnRematch.disabled = true;
+    rematchPending = true;
+  }
 });
 
 document.getElementById('btnLeave').addEventListener('click', () => {
   if (confirm('Leave the game?')) {
     window.location.reload();
   }
+});
+
+// --- Rematch request handling ---
+document.getElementById('btnAcceptRematch').addEventListener('click', () => {
+  socket.emit('game:rematch_accept');
+  rematchDialog.classList.add('hidden');
+});
+
+document.getElementById('btnDeclineRematch').addEventListener('click', () => {
+  socket.emit('game:rematch_decline');
+  rematchDialog.classList.add('hidden');
 });
 
 // --- Code modal ---
@@ -166,7 +196,6 @@ document.getElementById('btnCopyCode').addEventListener('click', () => {
       setTimeout(() => { btn.textContent = original; }, 1500);
     });
   } else {
-    // Fallback
     const textarea = document.createElement('textarea');
     textarea.value = code;
     document.body.appendChild(textarea);
@@ -198,6 +227,37 @@ function sendChat() {
   }
 }
 
+// --- Clock helpers ---
+function formatTime(seconds) {
+  seconds = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
+function updateClockDisplay(clocks, turn) {
+  if (!gameState || !gameState.timeControl || gameState.timeControl.initial === 0) {
+    clockWhite.classList.add('hidden');
+    clockBlack.classList.add('hidden');
+    return;
+  }
+
+  clockWhite.classList.remove('hidden');
+  clockBlack.classList.remove('hidden');
+
+  localClocks = clocks || localClocks;
+  clockWhite.textContent = formatTime(localClocks.w);
+  clockBlack.textContent = formatTime(localClocks.b);
+
+  // Highlight active clock
+  clockWhite.classList.toggle('active', turn === 'w');
+  clockBlack.classList.toggle('active', turn === 'b');
+
+  // Low time warning
+  clockWhite.classList.toggle('low-time', localClocks.w < 20);
+  clockBlack.classList.toggle('low-time', localClocks.b < 20);
+}
+
 // --- Socket events ---
 socket.on('game:created', ({ gameId: id, color }) => {
   gameId = id;
@@ -206,7 +266,6 @@ socket.on('game:created', ({ gameId: id, color }) => {
   board.setMyColor(color);
   board.setFlipped(color === 'b');
 
-  // Show code modal prominently
   codeDisplayBig.textContent = id;
   serverIpHint.textContent = window.location.host;
   codeModal.classList.remove('hidden');
@@ -223,14 +282,12 @@ socket.on('game:joined', ({ gameId: id, color }) => {
 socket.on('game:opponent_joined', () => {
   gameStatus.textContent = 'Opponent joined! Game on.';
   gameStatus.style.color = '#4ecca3';
-  // Auto-close code modal if still open
   codeModal.classList.add('hidden');
 });
 
 socket.on('game:state', (state) => {
   gameState = state;
 
-  // Update client-side chess.js instance for move validation
   if (window.ChessJS && ChessJS.Chess) {
     try {
       clientChess = new ChessJS.Chess(state.fen);
@@ -244,6 +301,51 @@ socket.on('game:state', (state) => {
     lastMove: state.history && state.history.length > 0 ? state.history[state.history.length - 1] : null,
     checkSquare: state.isCheck ? getKingSquare(state.fen, state.turn) : null
   });
+
+  // Update clocks
+  if (state.clocks) {
+    localClocks = state.clocks;
+    updateClockDisplay(state.clocks, state.turn);
+  }
+});
+
+socket.on('clock:tick', ({ clocks, turn }) => {
+  localClocks = clocks;
+  updateClockDisplay(clocks, turn);
+});
+
+socket.on('game:timeout', ({ winner }) => {
+  const winnerName = winner === 'w' ? 'White' : 'Black';
+  gameStatus.textContent = `${winnerName} wins on time!`;
+  gameStatus.style.color = '#e94560';
+});
+
+socket.on('game:rematch_request', ({ requestedBy }) => {
+  if (requestedBy === myColor) {
+    // My request — already handled by button state
+  } else {
+    const requesterName = requestedBy === 'w' ? 'White' : 'Black';
+    rematchDialogText.textContent = `${requesterName} wants a rematch`;
+    rematchDialog.classList.remove('hidden');
+  }
+});
+
+socket.on('game:rematch', () => {
+  gameStatus.textContent = 'Rematch! New game started.';
+  gameStatus.style.color = '#4ecca3';
+  rematchPending = false;
+  btnRematch.textContent = 'Request Rematch';
+  btnRematch.disabled = false;
+  rematchDialog.classList.add('hidden');
+});
+
+socket.on('game:rematch_declined', () => {
+  gameStatus.textContent = 'Rematch declined.';
+  gameStatus.style.color = '#e94560';
+  rematchPending = false;
+  btnRematch.textContent = 'Request Rematch';
+  btnRematch.disabled = false;
+  setTimeout(() => updateUI(gameState), 2000);
 });
 
 socket.on('game:error', ({ message }) => {
@@ -260,11 +362,6 @@ socket.on('game:resigned', ({ winner }) => {
   const winnerName = winner === 'w' ? 'White' : 'Black';
   gameStatus.textContent = `${winnerName} wins by resignation!`;
   gameStatus.style.color = '#e94560';
-});
-
-socket.on('game:rematch', () => {
-  gameStatus.textContent = 'Rematch! New game started.';
-  gameStatus.style.color = '#4ecca3';
 });
 
 socket.on('game:opponent_left', ({ color }) => {
@@ -294,7 +391,6 @@ function showGameScreen(id, color) {
 function updateUI(state) {
   if (!state) return;
 
-  // Turn indicator
   const turnName = state.turn === 'w' ? 'White' : 'Black';
   if (state.turn === myColor) {
     turnIndicator.textContent = `Your turn (${turnName})`;
@@ -304,11 +400,9 @@ function updateUI(state) {
     turnIndicator.className = 'turn-indicator';
   }
 
-  // Player labels
   playerWhite.classList.toggle('active', state.turn === 'w');
   playerBlack.classList.toggle('active', state.turn === 'b');
 
-  // Game status
   if (state.isCheckmate) {
     const winner = state.turn === 'w' ? 'Black' : 'White';
     gameStatus.textContent = `Checkmate! ${winner} wins!`;
@@ -330,7 +424,6 @@ function updateUI(state) {
     gameStatus.style.color = '#8892b0';
   }
 
-  // Move history
   renderMoveHistory(state.history);
 }
 
