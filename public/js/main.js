@@ -1,4 +1,4 @@
-// main.js — Client-side game logic, Socket.io, UI, Perk System
+// main.js — Client-side game logic, Socket.io, UI, Perk System, Sound
 
 const socket = io();
 let board = null;
@@ -13,10 +13,11 @@ let rematchPending = false;
 let localClocks = { w: 0, b: 0 };
 let myPerks = [];
 let oppPerks = [];
-let activePerk = null; // currently being activated
+let activePerk = null;
 let perkFromSquare = null;
 let perkTargets = [];
 let doubleMoveFirst = false;
+let prevHistoryLength = 0;
 
 // --- DOM elements ---
 const lobby = document.getElementById('lobby');
@@ -51,6 +52,18 @@ const perkModeBanner = document.getElementById('perkModeBanner');
 const perkModeText = document.getElementById('perkModeText');
 const resurrectDialog = document.getElementById('resurrectDialog');
 const resurrectOptions = document.getElementById('resurrectOptions');
+const btnSound = document.getElementById('btnSound');
+
+// --- Sound toggle ---
+btnSound.addEventListener('click', () => {
+  const enabled = !SoundFX.isEnabled();
+  SoundFX.setEnabled(enabled);
+  btnSound.textContent = enabled ? '🔊' : '🔇';
+  if (enabled) SoundFX.play('select');
+});
+
+// Initialize audio on first click anywhere
+document.addEventListener('click', () => SoundFX.init(), { once: true });
 
 // --- Initialize board ---
 board = new ChessBoard('chessboard', {
@@ -98,18 +111,37 @@ function showGameOverBanner(icon, title, reason, winnerColor) {
   gameOverTitle.classList.remove('win', 'loss', 'draw');
   if (!winnerColor) {
     gameOverTitle.classList.add('draw');
+    SoundFX.play('draw');
   } else if (winnerColor === myColor) {
     gameOverTitle.classList.add('win');
+    SoundFX.play('checkmate');
   } else {
     gameOverTitle.classList.add('loss');
+    SoundFX.play('checkmate');
   }
   gameOverBanner.classList.remove('hidden');
 }
 function hideGameOverBanner() { gameOverBanner.classList.add('hidden'); }
 
+// --- Determine sound for a move ---
+function playMoveSound(move, state) {
+  if (state.isCheckmate) {
+    SoundFX.play('checkmate');
+  } else if (state.isCheck) {
+    SoundFX.play('check');
+  } else if (move.flags && move.flags.includes('c')) {
+    SoundFX.play('capture');
+  } else if (move.flags && (move.flags.includes('k') || move.flags.includes('q'))) {
+    SoundFX.play('castle');
+  } else if (move.promotion) {
+    SoundFX.play('promote');
+  } else {
+    SoundFX.play('move');
+  }
+}
+
 // --- Perk UI ---
 function renderPerks() {
-  // My perks
   myPerksEl.innerHTML = '';
   for (const perk of myPerks) {
     const def = PERK_MAP[perk.id];
@@ -135,7 +167,6 @@ function renderPerks() {
     myPerksEl.appendChild(card);
   }
 
-  // Opponent perks (mini)
   oppPerksEl.innerHTML = '';
   for (const perk of oppPerks) {
     const def = PERK_MAP[perk.id];
@@ -157,15 +188,15 @@ function activatePerk(perkId) {
   if (!gameState || gameState.isGameOver) return;
   if (gameState.turn !== myColor) return;
 
+  SoundFX.play('perkActivate');
+
   const def = PERK_MAP[perkId];
 
-  // Double Move: activate immediately, no target needed
   if (perkId === 'double-move') {
     socket.emit('perk:activate', { perkId });
     return;
   }
 
-  // Resurrect: show piece selection dialog
   if (perkId === 'resurrect') {
     const captured = getResurrectOptions(clientChess, myColor);
     if (captured.length === 0) {
@@ -174,11 +205,9 @@ function activatePerk(perkId) {
       setTimeout(() => updateUI(gameState), 2000);
       return;
     }
-    // Show unique piece types
     const unique = [...new Set(captured)];
     resurrectOptions.innerHTML = '';
     for (const type of unique) {
-      const pieceImg = type === 'q' ? 'wQ' : type === 'r' ? 'wR' : type === 'b' ? 'wB' : type === 'n' ? 'wN' : 'wP';
       const colorPrefix = myColor === 'w' ? 'w' : 'b';
       const btn = document.createElement('button');
       btn.className = 'promotion-btn';
@@ -193,11 +222,9 @@ function activatePerk(perkId) {
     return;
   }
 
-  // Target-based perks: enter perk mode
   activePerk = perkId;
   perkFromSquare = null;
   perkTargets = [];
-
   perkModeText.textContent = `${def.icon} ${def.name} — Click your ${def.targetPiece === 'r' ? 'Rook' : def.targetPiece === 'k' ? 'King' : def.targetPiece === 'q' ? 'Queen' : def.targetPiece === 'p' ? 'Pawn' : def.targetPiece === 'b' ? 'Bishop' : def.targetPiece === 'n' ? 'Knight' : 'piece'}`;
   perkModeBanner.classList.remove('hidden');
   board.clearSelection();
@@ -214,14 +241,12 @@ function cancelPerkMode() {
 
 document.getElementById('btnCancelPerk').addEventListener('click', cancelPerkMode);
 
-// --- Perk-aware click handler ---
+// --- Click handler ---
 function handleSquareClick(sqName) {
-  // Perk mode
   if (activePerk) {
     handlePerkClick(sqName);
     return;
   }
-
   if (!gameState || gameState.isGameOver) return;
   if (gameState.turn !== myColor) return;
 
@@ -233,7 +258,6 @@ function handleSquareClick(sqName) {
       selectedSquare = null;
       return;
     }
-
     const isLegal = board.legalMoves.some(m => m.to === sqName);
     if (isLegal) {
       const fromPiece = board.getPieceAt(selectedSquare);
@@ -268,25 +292,22 @@ function handlePerkClick(sqName) {
   if (!def) return;
 
   if (!perkFromSquare) {
-    // First click: select the piece
     const piece = board.getPieceAt(sqName);
     if (!piece || piece[0] !== myColor) return;
     if (def.targetPiece && piece[1].toLowerCase() !== def.targetPiece) {
       gameStatus.textContent = `Select your ${def.targetPiece === 'r' ? 'Rook' : def.targetPiece === 'k' ? 'King' : def.targetPiece === 'q' ? 'Queen' : def.targetPiece === 'p' ? 'Pawn' : def.targetPiece === 'b' ? 'Bishop' : def.targetPiece === 'n' ? 'Knight' : 'piece'}!`;
       gameStatus.style.color = '#e94560';
+      SoundFX.play('invalid');
       setTimeout(() => updateUI(gameState), 1500);
       return;
     }
-
     perkFromSquare = sqName;
     board.selectSquare(sqName);
-
-    // Calculate valid targets using client-side chess.js
+    SoundFX.play('select');
     if (clientChess) {
       perkTargets = getPerkTargets(activePerk, sqName, clientChess, myColor);
       board.setLegalMoves(perkTargets.map(t => ({ to: t })));
     }
-
     if (perkTargets.length === 0) {
       gameStatus.textContent = 'No valid targets for this piece. Try another or cancel.';
       gameStatus.style.color = '#e94560';
@@ -294,9 +315,7 @@ function handlePerkClick(sqName) {
     return;
   }
 
-  // Second click: select target
   if (sqName === perkFromSquare) {
-    // Deselect, go back to piece selection
     perkFromSquare = null;
     perkTargets = [];
     board.clearSelection();
@@ -304,19 +323,15 @@ function handlePerkClick(sqName) {
   }
 
   if (perkTargets.includes(sqName)) {
-    socket.emit('perk:activate', {
-      perkId: activePerk,
-      from: perkFromSquare,
-      to: sqName
-    });
+    socket.emit('perk:activate', { perkId: activePerk, from: perkFromSquare, to: sqName });
     cancelPerkMode();
   } else {
-    // Invalid target — try selecting a different piece
     const piece = board.getPieceAt(sqName);
     if (piece && piece[0] === myColor) {
       if (!def.targetPiece || piece[1].toLowerCase() === def.targetPiece) {
         perkFromSquare = sqName;
         board.selectSquare(sqName);
+        SoundFX.play('select');
         if (clientChess) {
           perkTargets = getPerkTargets(activePerk, sqName, clientChess, myColor);
           board.setLegalMoves(perkTargets.map(t => ({ to: t })));
@@ -329,6 +344,7 @@ function handlePerkClick(sqName) {
 function selectPiece(sqName) {
   selectedSquare = sqName;
   board.selectSquare(sqName);
+  SoundFX.play('select');
   if (clientChess) {
     try {
       const moves = clientChess.moves({ square: sqName, verbose: true });
@@ -360,9 +376,11 @@ document.querySelectorAll('.promotion-btn').forEach(btn => {
 
 // --- Lobby ---
 document.getElementById('btnCreate').addEventListener('click', () => {
+  SoundFX.init();
   socket.emit('game:create', { timeControl: selectedTimeControl });
 });
 document.getElementById('btnJoin').addEventListener('click', () => {
+  SoundFX.init();
   const code = document.getElementById('gameIdInput').value.trim().toUpperCase();
   if (code) socket.emit('game:join', { gameId: code });
 });
@@ -489,6 +507,14 @@ socket.on('game:opponent_joined', () => {
   gameStatus.textContent = 'Opponent joined! Game on.';
   gameStatus.style.color = '#4ecca3';
   codeModal.classList.add('hidden');
+  SoundFX.play('gameStart');
+});
+
+socket.on('game:move', (move) => {
+  // Play sound based on the move type
+  if (gameState) {
+    playMoveSound(move, gameState);
+  }
 });
 
 socket.on('game:state', (state) => {
@@ -496,7 +522,6 @@ socket.on('game:state', (state) => {
   if (window.ChessJS && ChessJS.Chess) {
     try { clientChess = new ChessJS.Chess(state.fen); } catch (e) { clientChess = null; }
   }
-  // Update perks
   if (state.perks) {
     myPerks = state.perks[myColor] || [];
     const oppColor = myColor === 'w' ? 'b' : myColor === 'b' ? 'w' : 'w';
@@ -512,6 +537,8 @@ socket.on('game:state', (state) => {
     localClocks = state.clocks;
     updateClockDisplay(state.clocks, state.turn);
   }
+
+  // Play sounds for game-end states (only when transition happens)
   if (state.isCheckmate) {
     const winnerColor = state.turn === 'w' ? 'b' : 'w';
     const winnerName = winnerColor === 'w' ? 'White' : 'Black';
@@ -521,6 +548,8 @@ socket.on('game:state', (state) => {
   } else if (state.isDraw) {
     showGameOverBanner('🤝', 'Draw', 'by repetition or insufficient material', null);
   }
+
+  prevHistoryLength = state.history ? state.history.length : 0;
 });
 
 socket.on('clock:tick', ({ clocks, turn }) => {
@@ -539,8 +568,8 @@ socket.on('game:timeout', ({ winner }) => {
 socket.on('perk:used', ({ perkId, player, from, to, pieceType }) => {
   const def = PERK_MAP[perkId];
   if (!def) return;
+  SoundFX.play('perkUse');
   const playerName = player === 'w' ? 'White' : 'Black';
-  // Brief status message
   if (player === myColor) {
     gameStatus.textContent = `You used ${def.icon} ${def.name}!`;
     gameStatus.style.color = '#4ecca3';
@@ -548,13 +577,13 @@ socket.on('perk:used', ({ perkId, player, from, to, pieceType }) => {
     gameStatus.textContent = `${playerName} used ${def.icon} ${def.name}!`;
     gameStatus.style.color = '#e94560';
   }
-  // Perks will be re-rendered on next game:state
 });
 
 socket.on('perk:double_move_first', ({ color }) => {
   if (color === myColor) {
     gameStatus.textContent = 'Double Move! Make another move.';
     gameStatus.style.color = '#00cec9';
+    SoundFX.play('perkActivate');
   }
 });
 
@@ -575,6 +604,7 @@ socket.on('game:rematch', () => {
   rematchDialog.classList.add('hidden');
   hideGameOverBanner();
   cancelPerkMode();
+  SoundFX.play('gameStart');
 });
 
 socket.on('game:rematch_declined', () => {
@@ -590,6 +620,7 @@ socket.on('game:error', ({ message }) => {
   if (lobby.classList.contains('hidden')) {
     gameStatus.textContent = message;
     gameStatus.style.color = '#e94560';
+    SoundFX.play('invalid');
     setTimeout(() => updateUI(gameState), 2000);
   } else {
     lobbyMessage.textContent = message;
