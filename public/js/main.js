@@ -1,4 +1,4 @@
-// main.js — Client-side game logic, Socket.io, UI, Perk System, Sound
+// main.js — Client-side game logic, Socket.io, UI, Perks, Sound, Profile
 
 const socket = io();
 let board = null;
@@ -16,10 +16,9 @@ let oppPerks = [];
 let activePerk = null;
 let perkFromSquare = null;
 let perkTargets = [];
-let doubleMoveFirst = false;
-let prevHistoryLength = 0;
+let playerProfile = { name: '', avatar: '' };
 
-// --- DOM elements ---
+// --- DOM ---
 const lobby = document.getElementById('lobby');
 const gameScreen = document.getElementById('game');
 const lobbyMessage = document.getElementById('lobbyMessage');
@@ -37,6 +36,8 @@ const playerTop = document.getElementById('playerTop');
 const playerBottom = document.getElementById('playerBottom');
 const clockTop = document.getElementById('clockTop');
 const clockBottom = document.getElementById('clockBottom');
+const avatarTop = document.getElementById('avatarTop');
+const avatarBottom = document.getElementById('avatarBottom');
 const gameOverBanner = document.getElementById('gameOverBanner');
 const gameOverIcon = document.getElementById('gameOverIcon');
 const gameOverTitle = document.getElementById('gameOverTitle');
@@ -53,19 +54,45 @@ const perkModeText = document.getElementById('perkModeText');
 const resurrectDialog = document.getElementById('resurrectDialog');
 const resurrectOptions = document.getElementById('resurrectOptions');
 const btnSound = document.getElementById('btnSound');
+const playerNameInput = document.getElementById('playerNameInput');
+const avatarInput = document.getElementById('avatarInput');
+const avatarPreview = document.getElementById('avatarPreview');
 
 // --- Sound toggle ---
 btnSound.addEventListener('click', () => {
   const enabled = !SoundFX.isEnabled();
   SoundFX.setEnabled(enabled);
   btnSound.textContent = enabled ? '🔊' : '🔇';
-  if (enabled) SoundFX.play('select');
+  if (enabled) SoundFX.play('notify');
 });
 
-// Initialize audio on first click anywhere
-document.addEventListener('click', () => SoundFX.init(), { once: true });
+// Preload sounds on first interaction
+document.addEventListener('click', () => { SoundFX.preload(); }, { once: true });
 
-// --- Initialize board ---
+// --- Avatar upload ---
+avatarInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 500 * 1024) {
+    lobbyMessage.textContent = 'Image too large (max 500KB)';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    playerProfile.avatar = ev.target.result;
+    avatarPreview.innerHTML = `<img src="${ev.target.result}" alt="">`;
+  };
+  reader.readAsDataURL(file);
+});
+
+// --- Get profile from inputs ---
+function getProfile() {
+  const name = playerNameInput.value.trim() || 'Anonymous';
+  playerProfile.name = name;
+  return playerProfile;
+}
+
+// --- Board init ---
 board = new ChessBoard('chessboard', {
   onMove: (from, to, isPromotion) => {
     if (isPromotion) {
@@ -75,12 +102,10 @@ board = new ChessBoard('chessboard', {
       socket.emit('game:move', { from, to });
     }
   },
-  onSquareClick: (sqName) => {
-    handleSquareClick(sqName);
-  }
+  onSquareClick: (sqName) => { handleSquareClick(sqName); }
 });
 
-// --- Time control selection ---
+// --- Time control ---
 document.querySelectorAll('.tc-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tc-btn').forEach(b => b.classList.remove('active'));
@@ -89,17 +114,30 @@ document.querySelectorAll('.tc-btn').forEach(btn => {
   });
 });
 
-// --- Setup player bars ---
-function setupPlayerBars(color) {
-  if (color === 'w') {
-    playerBottom.textContent = 'You (White)';
-    playerTop.textContent = 'Black';
-  } else if (color === 'b') {
-    playerBottom.textContent = 'You (Black)';
-    playerTop.textContent = 'White';
+// --- Setup player bars with name + avatar ---
+function setupPlayerBars(color, profiles) {
+  const myProfile = profiles && profiles[color] ? profiles[color] : { name: color === 'w' ? 'White' : 'Black', avatar: '' };
+  const oppColor = color === 'w' ? 'b' : 'w';
+  const oppProfile = profiles && profiles[oppColor] ? profiles[oppColor] : { name: oppColor === 'w' ? 'White' : 'Black', avatar: '' };
+
+  // Bottom = me, Top = opponent
+  if (color === 'w' || color === 'b') {
+    playerBottom.textContent = `${myProfile.name} (${color === 'w' ? 'White' : 'Black'})`;
+    playerTop.textContent = `${oppProfile.name}`;
+    setAvatar(avatarBottom, myProfile.avatar);
+    setAvatar(avatarTop, oppProfile.avatar);
   } else {
     playerBottom.textContent = 'White';
     playerTop.textContent = 'Black';
+  }
+}
+
+function setAvatar(imgEl, avatarData) {
+  if (avatarData) {
+    imgEl.src = avatarData;
+    imgEl.style.display = '';
+  } else {
+    imgEl.src = '/img/pieces/wK.svg';
   }
 }
 
@@ -111,24 +149,31 @@ function showGameOverBanner(icon, title, reason, winnerColor) {
   gameOverTitle.classList.remove('win', 'loss', 'draw');
   if (!winnerColor) {
     gameOverTitle.classList.add('draw');
-    SoundFX.play('draw');
+    SoundFX.play('game-draw');
   } else if (winnerColor === myColor) {
     gameOverTitle.classList.add('win');
-    SoundFX.play('checkmate');
+    SoundFX.play('game-win-long');
   } else {
     gameOverTitle.classList.add('loss');
-    SoundFX.play('checkmate');
+    SoundFX.play('game-lose-long');
   }
   gameOverBanner.classList.remove('hidden');
 }
 function hideGameOverBanner() { gameOverBanner.classList.add('hidden'); }
 
-// --- Determine sound for a move ---
+// --- Sound for moves ---
 function playMoveSound(move, state) {
+  const isMyMove = move.color !== myColor; // move.color is the color that moved; if not mine, opponent moved
+  // Actually chess.js move.color is the color of the player who moved
+  // If it's not my turn now, the opponent just moved (or I just moved)
+  // Let's use a simpler approach: if the move was made by my color, play move-self, else move-opponent
+  const moverColor = move.color;
+  const isSelf = moverColor === myColor;
+
   if (state.isCheckmate) {
-    SoundFX.play('checkmate');
+    SoundFX.play('game-end');
   } else if (state.isCheck) {
-    SoundFX.play('check');
+    SoundFX.play(isSelf ? 'move-self-check' : 'move-opponent-check');
   } else if (move.flags && move.flags.includes('c')) {
     SoundFX.play('capture');
   } else if (move.flags && (move.flags.includes('k') || move.flags.includes('q'))) {
@@ -136,11 +181,11 @@ function playMoveSound(move, state) {
   } else if (move.promotion) {
     SoundFX.play('promote');
   } else {
-    SoundFX.play('move');
+    SoundFX.play(isSelf ? 'move-self' : 'move-opponent');
   }
 }
 
-// --- Perk UI ---
+// --- Perks ---
 function renderPerks() {
   myPerksEl.innerHTML = '';
   for (const perk of myPerks) {
@@ -159,10 +204,7 @@ function renderPerks() {
     `;
     const btn = card.querySelector('.perk-activate-btn');
     if (btn) {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        activatePerk(perk.id);
-      });
+      btn.addEventListener('click', (e) => { e.stopPropagation(); activatePerk(perk.id); });
     }
     myPerksEl.appendChild(card);
   }
@@ -188,8 +230,7 @@ function activatePerk(perkId) {
   if (!gameState || gameState.isGameOver) return;
   if (gameState.turn !== myColor) return;
 
-  SoundFX.play('perkActivate');
-
+  SoundFX.play('notify');
   const def = PERK_MAP[perkId];
 
   if (perkId === 'double-move') {
@@ -238,26 +279,16 @@ function cancelPerkMode() {
   perkModeBanner.classList.add('hidden');
   board.clearSelection();
 }
-
 document.getElementById('btnCancelPerk').addEventListener('click', cancelPerkMode);
 
 // --- Click handler ---
 function handleSquareClick(sqName) {
-  if (activePerk) {
-    handlePerkClick(sqName);
-    return;
-  }
+  if (activePerk) { handlePerkClick(sqName); return; }
   if (!gameState || gameState.isGameOver) return;
   if (gameState.turn !== myColor) return;
-
   const piece = board.getPieceAt(sqName);
-
   if (selectedSquare) {
-    if (sqName === selectedSquare) {
-      board.clearSelection();
-      selectedSquare = null;
-      return;
-    }
+    if (sqName === selectedSquare) { board.clearSelection(); selectedSquare = null; return; }
     const isLegal = board.legalMoves.some(m => m.to === sqName);
     if (isLegal) {
       const fromPiece = board.getPieceAt(selectedSquare);
@@ -274,36 +305,29 @@ function handleSquareClick(sqName) {
       socket.emit('game:move', { from: selectedSquare, to: sqName });
       board.clearSelection();
       selectedSquare = null;
-    } else if (piece && piece[0] === myColor) {
-      selectPiece(sqName);
-    } else {
-      board.clearSelection();
-      selectedSquare = null;
-    }
+    } else if (piece && piece[0] === myColor) { selectPiece(sqName); }
+    else { board.clearSelection(); selectedSquare = null; }
   } else {
-    if (piece && piece[0] === myColor) {
-      selectPiece(sqName);
-    }
+    if (piece && piece[0] === myColor) { selectPiece(sqName); }
   }
 }
 
 function handlePerkClick(sqName) {
   const def = PERK_MAP[activePerk];
   if (!def) return;
-
   if (!perkFromSquare) {
     const piece = board.getPieceAt(sqName);
     if (!piece || piece[0] !== myColor) return;
     if (def.targetPiece && piece[1].toLowerCase() !== def.targetPiece) {
       gameStatus.textContent = `Select your ${def.targetPiece === 'r' ? 'Rook' : def.targetPiece === 'k' ? 'King' : def.targetPiece === 'q' ? 'Queen' : def.targetPiece === 'p' ? 'Pawn' : def.targetPiece === 'b' ? 'Bishop' : def.targetPiece === 'n' ? 'Knight' : 'piece'}!`;
       gameStatus.style.color = '#e94560';
-      SoundFX.play('invalid');
+      SoundFX.play('illegal');
       setTimeout(() => updateUI(gameState), 1500);
       return;
     }
     perkFromSquare = sqName;
     board.selectSquare(sqName);
-    SoundFX.play('select');
+    SoundFX.play('notify');
     if (clientChess) {
       perkTargets = getPerkTargets(activePerk, sqName, clientChess, myColor);
       board.setLegalMoves(perkTargets.map(t => ({ to: t })));
@@ -314,14 +338,7 @@ function handlePerkClick(sqName) {
     }
     return;
   }
-
-  if (sqName === perkFromSquare) {
-    perkFromSquare = null;
-    perkTargets = [];
-    board.clearSelection();
-    return;
-  }
-
+  if (sqName === perkFromSquare) { perkFromSquare = null; perkTargets = []; board.clearSelection(); return; }
   if (perkTargets.includes(sqName)) {
     socket.emit('perk:activate', { perkId: activePerk, from: perkFromSquare, to: sqName });
     cancelPerkMode();
@@ -331,7 +348,7 @@ function handlePerkClick(sqName) {
       if (!def.targetPiece || piece[1].toLowerCase() === def.targetPiece) {
         perkFromSquare = sqName;
         board.selectSquare(sqName);
-        SoundFX.play('select');
+        SoundFX.play('notify');
         if (clientChess) {
           perkTargets = getPerkTargets(activePerk, sqName, clientChess, myColor);
           board.setLegalMoves(perkTargets.map(t => ({ to: t })));
@@ -344,27 +361,21 @@ function handlePerkClick(sqName) {
 function selectPiece(sqName) {
   selectedSquare = sqName;
   board.selectSquare(sqName);
-  SoundFX.play('select');
+  SoundFX.play('notify');
   if (clientChess) {
     try {
       const moves = clientChess.moves({ square: sqName, verbose: true });
       board.setLegalMoves(moves);
-    } catch (e) {
-      board.setLegalMoves([]);
-    }
+    } catch (e) { board.setLegalMoves([]); }
   }
 }
 
-// --- Promotion dialog ---
+// --- Promotion ---
 document.querySelectorAll('.promotion-btn').forEach(btn => {
   if (btn.dataset.piece) {
     btn.addEventListener('click', () => {
       if (pendingPromotion) {
-        socket.emit('game:move', {
-          from: pendingPromotion.from,
-          to: pendingPromotion.to,
-          promotion: btn.dataset.piece
-        });
+        socket.emit('game:move', { from: pendingPromotion.from, to: pendingPromotion.to, promotion: btn.dataset.piece });
         pendingPromotion = null;
       }
       promotionDialog.classList.add('hidden');
@@ -376,22 +387,20 @@ document.querySelectorAll('.promotion-btn').forEach(btn => {
 
 // --- Lobby ---
 document.getElementById('btnCreate').addEventListener('click', () => {
-  SoundFX.init();
-  socket.emit('game:create', { timeControl: selectedTimeControl });
+  const profile = getProfile();
+  socket.emit('game:create', { timeControl: selectedTimeControl, name: profile.name, avatar: profile.avatar });
 });
 document.getElementById('btnJoin').addEventListener('click', () => {
-  SoundFX.init();
+  const profile = getProfile();
   const code = document.getElementById('gameIdInput').value.trim().toUpperCase();
-  if (code) socket.emit('game:join', { gameId: code });
+  if (code) socket.emit('game:join', { gameId: code, name: profile.name, avatar: profile.avatar });
 });
 document.getElementById('gameIdInput').addEventListener('keypress', (e) => {
   if (e.key === 'Enter') document.getElementById('btnJoin').click();
 });
 
 // --- Game actions ---
-document.getElementById('btnResign').addEventListener('click', () => {
-  if (confirm('Are you sure you want to resign?')) socket.emit('game:resign');
-});
+document.getElementById('btnResign').addEventListener('click', () => { if (confirm('Resign?')) socket.emit('game:resign'); });
 document.getElementById('btnRematch').addEventListener('click', () => {
   if (!rematchPending) {
     socket.emit('game:rematch_request');
@@ -400,10 +409,7 @@ document.getElementById('btnRematch').addEventListener('click', () => {
     rematchPending = true;
   }
 });
-document.getElementById('btnLeave').addEventListener('click', () => {
-  if (confirm('Leave the game?')) window.location.reload();
-});
-
+document.getElementById('btnLeave').addEventListener('click', () => { if (confirm('Leave?')) window.location.reload(); });
 btnBannerRematch.addEventListener('click', () => {
   hideGameOverBanner();
   if (!rematchPending) {
@@ -414,15 +420,8 @@ btnBannerRematch.addEventListener('click', () => {
   }
 });
 btnBannerLeave.addEventListener('click', () => window.location.reload());
-
-document.getElementById('btnAcceptRematch').addEventListener('click', () => {
-  socket.emit('game:rematch_accept');
-  rematchDialog.classList.add('hidden');
-});
-document.getElementById('btnDeclineRematch').addEventListener('click', () => {
-  socket.emit('game:rematch_decline');
-  rematchDialog.classList.add('hidden');
-});
+document.getElementById('btnAcceptRematch').addEventListener('click', () => { socket.emit('game:rematch_accept'); rematchDialog.classList.add('hidden'); });
+document.getElementById('btnDeclineRematch').addEventListener('click', () => { socket.emit('game:rematch_decline'); rematchDialog.classList.add('hidden'); });
 
 // --- Code modal ---
 document.getElementById('btnCopyCode').addEventListener('click', () => {
@@ -436,9 +435,7 @@ document.getElementById('btnCopyCode').addEventListener('click', () => {
     });
   }
 });
-document.getElementById('btnCloseModal').addEventListener('click', () => {
-  codeModal.classList.add('hidden');
-});
+document.getElementById('btnCloseModal').addEventListener('click', () => { codeModal.classList.add('hidden'); });
 
 // --- Chat ---
 document.getElementById('btnChatSend').addEventListener('click', sendChat);
@@ -448,7 +445,7 @@ function sendChat() {
   if (text) { socket.emit('chat:message', { text }); chatInput.value = ''; }
 }
 
-// --- Clock helpers ---
+// --- Clock ---
 function formatTime(seconds) {
   seconds = Math.max(0, Math.floor(seconds));
   const m = Math.floor(seconds / 60);
@@ -457,36 +454,33 @@ function formatTime(seconds) {
 }
 function updateClockDisplay(clocks, turn) {
   if (!gameState || !gameState.timeControl || gameState.timeControl.initial === 0) {
-    clockTop.classList.add('hidden');
-    clockBottom.classList.add('hidden');
-    return;
+    clockTop.classList.add('hidden'); clockBottom.classList.add('hidden'); return;
   }
-  clockTop.classList.remove('hidden');
-  clockBottom.classList.remove('hidden');
+  clockTop.classList.remove('hidden'); clockBottom.classList.remove('hidden');
   localClocks = clocks || localClocks;
   let topClockVal, bottomClockVal, topColor, bottomColor;
-  if (myColor === 'w') {
-    topColor = 'b'; bottomColor = 'w';
-    topClockVal = localClocks.b; bottomClockVal = localClocks.w;
-  } else if (myColor === 'b') {
-    topColor = 'w'; bottomColor = 'b';
-    topClockVal = localClocks.w; bottomClockVal = localClocks.b;
-  } else {
-    topColor = 'b'; bottomColor = 'w';
-    topClockVal = localClocks.b; bottomClockVal = localClocks.w;
-  }
+  if (myColor === 'w') { topColor = 'b'; bottomColor = 'w'; topClockVal = localClocks.b; bottomClockVal = localClocks.w; }
+  else if (myColor === 'b') { topColor = 'w'; bottomColor = 'b'; topClockVal = localClocks.w; bottomClockVal = localClocks.b; }
+  else { topColor = 'b'; bottomColor = 'w'; topClockVal = localClocks.b; bottomClockVal = localClocks.w; }
   clockTop.textContent = formatTime(topClockVal);
   clockBottom.textContent = formatTime(bottomClockVal);
   clockTop.classList.toggle('active', turn === topColor);
   clockBottom.classList.toggle('active', turn === bottomColor);
+  const wasLow = clockTop.classList.contains('low-time');
   clockTop.classList.toggle('low-time', topClockVal < 20);
   clockBottom.classList.toggle('low-time', bottomClockVal < 20);
+  // Play tenseconds sound when crossing below 10
+  if (topClockVal < 10 && topClockVal > 0 && turn === topColor && !wasLow) SoundFX.play('tenseconds');
+  if (bottomClockVal < 10 && bottomClockVal > 0 && turn === bottomColor && !clockBottom.classList.contains('low-time-was')) {
+    clockBottom.classList.add('low-time-was');
+    SoundFX.play('tenseconds');
+  }
+  if (bottomClockVal >= 10) clockBottom.classList.remove('low-time-was');
 }
 
 // --- Socket events ---
 socket.on('game:created', ({ gameId: id, color }) => {
   gameId = id; myColor = color;
-  setupPlayerBars(color);
   showGameScreen(id, color);
   board.setMyColor(color);
   board.setFlipped(color === 'b');
@@ -497,7 +491,6 @@ socket.on('game:created', ({ gameId: id, color }) => {
 
 socket.on('game:joined', ({ gameId: id, color }) => {
   gameId = id; myColor = color;
-  setupPlayerBars(color);
   showGameScreen(id, color);
   board.setMyColor(color);
   board.setFlipped(color === 'b');
@@ -507,14 +500,11 @@ socket.on('game:opponent_joined', () => {
   gameStatus.textContent = 'Opponent joined! Game on.';
   gameStatus.style.color = '#4ecca3';
   codeModal.classList.add('hidden');
-  SoundFX.play('gameStart');
+  SoundFX.play('game-start');
 });
 
 socket.on('game:move', (move) => {
-  // Play sound based on the move type
-  if (gameState) {
-    playMoveSound(move, gameState);
-  }
+  if (gameState) playMoveSound(move, gameState);
 });
 
 socket.on('game:state', (state) => {
@@ -528,17 +518,16 @@ socket.on('game:state', (state) => {
     oppPerks = state.perks[oppColor] || [];
     renderPerks();
   }
+  // Update player bars with profiles
+  if (state.profiles) {
+    setupPlayerBars(myColor, state.profiles);
+  }
   updateUI(state);
   board.update(state.fen, {
     lastMove: state.history && state.history.length > 0 ? state.history[state.history.length - 1] : null,
     checkSquare: state.isCheck ? getKingSquare(state.fen, state.turn) : null
   });
-  if (state.clocks) {
-    localClocks = state.clocks;
-    updateClockDisplay(state.clocks, state.turn);
-  }
-
-  // Play sounds for game-end states (only when transition happens)
+  if (state.clocks) { localClocks = state.clocks; updateClockDisplay(state.clocks, state.turn); }
   if (state.isCheckmate) {
     const winnerColor = state.turn === 'w' ? 'b' : 'w';
     const winnerName = winnerColor === 'w' ? 'White' : 'Black';
@@ -548,14 +537,9 @@ socket.on('game:state', (state) => {
   } else if (state.isDraw) {
     showGameOverBanner('🤝', 'Draw', 'by repetition or insufficient material', null);
   }
-
-  prevHistoryLength = state.history ? state.history.length : 0;
 });
 
-socket.on('clock:tick', ({ clocks, turn }) => {
-  localClocks = clocks;
-  updateClockDisplay(clocks, turn);
-});
+socket.on('clock:tick', ({ clocks, turn }) => { localClocks = clocks; updateClockDisplay(clocks, turn); });
 
 socket.on('game:timeout', ({ winner }) => {
   const winnerName = winner === 'w' ? 'White' : 'Black';
@@ -565,10 +549,10 @@ socket.on('game:timeout', ({ winner }) => {
   showGameOverBanner('⏱️', `${winnerName} Wins!`, `${loserName} ran out of time`, winner);
 });
 
-socket.on('perk:used', ({ perkId, player, from, to, pieceType }) => {
+socket.on('perk:used', ({ perkId, player }) => {
   const def = PERK_MAP[perkId];
   if (!def) return;
-  SoundFX.play('perkUse');
+  SoundFX.play('capture');
   const playerName = player === 'w' ? 'White' : 'Black';
   if (player === myColor) {
     gameStatus.textContent = `You used ${def.icon} ${def.name}!`;
@@ -583,7 +567,7 @@ socket.on('perk:double_move_first', ({ color }) => {
   if (color === myColor) {
     gameStatus.textContent = 'Double Move! Make another move.';
     gameStatus.style.color = '#00cec9';
-    SoundFX.play('perkActivate');
+    SoundFX.play('notify');
   }
 });
 
@@ -592,6 +576,7 @@ socket.on('game:rematch_request', ({ requestedBy }) => {
     const requesterName = requestedBy === 'w' ? 'White' : 'Black';
     rematchDialogText.textContent = `${requesterName} wants a rematch`;
     rematchDialog.classList.remove('hidden');
+    SoundFX.play('notify');
   }
 });
 
@@ -604,7 +589,7 @@ socket.on('game:rematch', () => {
   rematchDialog.classList.add('hidden');
   hideGameOverBanner();
   cancelPerkMode();
-  SoundFX.play('gameStart');
+  SoundFX.play('game-start');
 });
 
 socket.on('game:rematch_declined', () => {
@@ -620,7 +605,7 @@ socket.on('game:error', ({ message }) => {
   if (lobby.classList.contains('hidden')) {
     gameStatus.textContent = message;
     gameStatus.style.color = '#e94560';
-    SoundFX.play('invalid');
+    SoundFX.play('illegal');
     setTimeout(() => updateUI(gameState), 2000);
   } else {
     lobbyMessage.textContent = message;
@@ -687,7 +672,7 @@ function updateUI(state) {
   } else if (state.isCheck) {
     gameStatus.textContent = `Check! ${turnName} must respond.`;
     gameStatus.style.color = '#e94560';
-  } else if (state.players.white && state.players.black) {
+  } else if (state.players && state.players.white && state.players.black) {
     gameStatus.textContent = `Game in progress — ${turnName} to move`;
     gameStatus.style.color = '#eaeaea';
   } else {
@@ -733,5 +718,4 @@ function getKingSquare(fen, color) {
   return null;
 }
 
-// Initialize
 board.update('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');

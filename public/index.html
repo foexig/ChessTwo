@@ -13,6 +13,16 @@
       <h1>♟️ Chess</h1>
       <p class="subtitle">Local Network Multiplayer — with Perks!</p>
 
+      <!-- Player Profile -->
+      <div class="profile-section">
+        <div class="avatar-wrapper">
+          <div id="avatarPreview" class="avatar-preview">?</div>
+          <label for="avatarInput" class="avatar-upload-btn" title="Upload avatar">📷</label>
+          <input type="file" id="avatarInput" accept="image/*" class="hidden-file-input">
+        </div>
+        <input type="text" id="playerNameInput" class="name-input" placeholder="Your name..." maxlength="16" autocomplete="off">
+      </div>
+
       <div class="time-control-section">
         <label class="tc-label">Time Control</label>
         <div class="time-options" id="timeOptions">
@@ -58,40 +68,40 @@
       <!-- Board Area -->
       <div class="board-container">
         <div class="player-bar">
-          <div id="playerTop" class="player-label">Black</div>
+          <div class="player-bar-left">
+            <img id="avatarTop" class="player-avatar" src="/img/pieces/wK.svg" alt="">
+            <div id="playerTop" class="player-label">Black</div>
+          </div>
           <div id="clockTop" class="clock-display hidden">--:--</div>
         </div>
         <div id="chessboard" class="chessboard"></div>
         <div class="player-bar">
-          <div id="playerBottom" class="player-label">White</div>
+          <div class="player-bar-left">
+            <img id="avatarBottom" class="player-avatar" src="/img/pieces/bK.svg" alt="">
+            <div id="playerBottom" class="player-label">White</div>
+          </div>
           <div id="clockBottom" class="clock-display hidden">--:--</div>
         </div>
       </div>
 
       <!-- Side Panel -->
       <div class="side-panel">
-        <!-- Perks Panel -->
         <div class="perks-panel">
           <h3>Your Perks</h3>
           <div id="myPerks" class="perk-cards"></div>
         </div>
-
-        <!-- Opponent Perks (mini) -->
         <div class="perks-panel opp-perks">
           <h3>Opponent Perks</h3>
           <div id="oppPerks" class="perk-cards-mini"></div>
         </div>
-
         <div class="status-panel">
           <h3>Status</h3>
           <div id="gameStatus" class="game-status">Waiting for opponent...</div>
         </div>
-
         <div class="move-history-panel">
           <h3>Moves</h3>
           <div id="moveHistory" class="move-history"></div>
         </div>
-
         <div class="chat-panel">
           <h3>Chat</h3>
           <div id="chatMessages" class="chat-messages"></div>
