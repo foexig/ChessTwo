@@ -317,7 +317,7 @@ io.on('connection', (socket) => {
   });
 
   // --- Draft: player completes their draft ---
-  socket.on('draft:complete', ({ characterId, perks }) => {
+  socket.on('draft:complete', ({ characterId, perks, avatar }) => {
     const game = games.get(socket.gameId);
     if (!game) { socket.emit('game:error', { message: 'No active game' }); return; }
     if (game.draftComplete[socket.color]) return; // Already completed
@@ -326,6 +326,8 @@ io.on('connection', (socket) => {
     game.perks = game.perks || { w: [], b: [] };
     game.perks[socket.color] = perks;
     game.draftComplete[socket.color] = true;
+    // Update profile avatar with character icon
+    if (avatar) game.profiles[socket.color].avatar = avatar;
 
     console.log(`[DRAFT_COMPLETE] ${socket.gameId} — ${socket.color} drafted ${perks.length} perks with ${characterId}`);
 

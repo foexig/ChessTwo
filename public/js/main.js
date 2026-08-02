@@ -92,21 +92,11 @@ btnSound.addEventListener('click', () => {
 // Preload sounds on first interaction
 document.addEventListener('click', () => { SoundFX.preload(); }, { once: true });
 
-// --- Avatar upload ---
-avatarInput.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (file.size > 500 * 1024) {
-    lobbyMessage.textContent = 'Image too large (max 500KB)';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    playerProfile.avatar = ev.target.result;
-    avatarPreview.innerHTML = `<img src="${ev.target.result}" alt="">`;
-  };
-  reader.readAsDataURL(file);
-});
+// --- Avatar: uses character icon from draft, no upload needed ---
+function emojiToDataUrl(emoji, bgColor = '#1a1f35') {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="8" fill="${bgColor}"/><text y="46" font-size="36" text-anchor="middle" x="32">${emoji}</text></svg>`;
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}
 
 // --- Get profile from inputs ---
 function getProfile() {
@@ -171,6 +161,9 @@ btnConfirmChar.addEventListener('click', () => {
   draftPicksMax = selectedCharacter.ability === 'extra_picks' ? 4 : 3;
   rerollsLeft = selectedCharacter.ability === 'rerolls' ? selectedCharacter.value : 1;
 
+  // Set character icon as avatar
+  playerProfile.avatar = selectedCharacter.icon;
+
   // Generate cards
   draftCards = rollDraftCards(cardCount, selectedCharacter);
   draftedPerks = [];
@@ -210,7 +203,17 @@ function renderCardGrid() {
       <div class="draft-card-uses" style="color:${rarity.color}">${rarity.uses} use${rarity.uses > 1 ? 's' : ''}</div>
     `;
 
-    if (!isDrafted && draftedPerks.length < draftPicksMax) {
+    if (isDrafted) {
+      // Click to put back
+      cardEl.title = 'Click to put back';
+      cardEl.style.cursor = 'pointer';
+      cardEl.addEventListener('click', () => {
+        draftedPerks = draftedPerks.filter(d => d.cardIndex !== idx);
+        SoundFX.play('notify');
+        renderCardGrid();
+        updateDraftUI();
+      });
+    } else if (draftedPerks.length < draftPicksMax) {
       cardEl.addEventListener('click', () => {
         draftedPerks.push({ ...card, cardIndex: idx });
         SoundFX.play('capture');
@@ -227,7 +230,7 @@ function updateDraftUI() {
   const remaining = draftPicksMax - draftedPerks.length;
   picksRemainingEl.textContent = `Picks: ${remaining}`;
   btnReroll.textContent = `Reroll (${rerollsLeft})`;
-  btnReroll.disabled = rerollsLeft <= 0 || draftedPerks.length > 0;
+  btnReroll.disabled = rerollsLeft <= 0;
   btnConfirmDraft.disabled = draftedPerks.length !== draftPicksMax;
 
   // Render drafted summary
@@ -249,8 +252,10 @@ function updateDraftUI() {
 }
 
 btnReroll.addEventListener('click', () => {
-  if (rerollsLeft <= 0 || draftedPerks.length > 0) return;
+  if (rerollsLeft <= 0) return;
   rerollsLeft--;
+  // Clear drafted picks and reroll
+  draftedPerks = [];
   const cardCount = selectedCharacter.ability === 'extra_cards' ? 7 : 6;
   draftCards = rollDraftCards(cardCount, selectedCharacter);
   SoundFX.play('notify');
@@ -266,7 +271,8 @@ btnConfirmDraft.addEventListener('click', () => {
   const perksData = applyCharacterBonuses(draftedPerks, selectedCharacter);
   socket.emit('draft:complete', {
     characterId: selectedCharacter.id,
-    perks: perksData
+    perks: perksData,
+    avatar: selectedCharacter.icon
   });
 
   // Show waiting phase
@@ -295,8 +301,12 @@ function setupPlayerBars(color, profiles) {
 }
 
 function setAvatar(imgEl, avatarData) {
-  if (avatarData) {
+  if (avatarData && avatarData.startsWith('data:')) {
     imgEl.src = avatarData;
+    imgEl.style.display = '';
+  } else if (avatarData) {
+    // Emoji avatar from character
+    imgEl.src = emojiToDataUrl(avatarData);
     imgEl.style.display = '';
   } else {
     imgEl.src = '/img/pieces/wK.svg';
