@@ -11,7 +11,7 @@
   --move-from: #f7ec6e;
   --move-to: #cdd26a;
   --check-sq: #ff4d4d;
-  --board-size: min(70vmin, 600px);
+  --board-size: min(82vmin, 720px);
   --bg: #1a1a2e;
   --panel-bg: #16213e;
   --text: #eaeaea;
@@ -195,8 +195,8 @@ body {
 /* Game Header */
 .game-header {
   width: 100%;
-  max-width: 1100px;
-  padding: 12px 20px;
+  max-width: 1200px;
+  padding: 10px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -233,15 +233,15 @@ body {
   gap: 8px;
 }
 
-/* Game Layout */
+/* Game Layout — board + side panel side by side, same height */
 .game-layout {
   display: flex;
-  gap: 20px;
+  gap: 24px;
   padding: 20px;
   flex: 1;
   width: 100%;
-  max-width: 1100px;
-  align-items: center;
+  max-width: 1200px;
+  align-items: stretch;
   justify-content: center;
   flex-wrap: wrap;
 }
@@ -263,7 +263,7 @@ body {
 }
 
 .player-label {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
   font-weight: 600;
 }
@@ -275,13 +275,13 @@ body {
 /* Clock display */
 .clock-display {
   font-family: 'Courier New', monospace;
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   font-weight: 700;
   color: var(--text);
-  padding: 4px 16px;
+  padding: 4px 18px;
   border-radius: 8px;
   background: #0f1629;
-  min-width: 80px;
+  min-width: 90px;
   text-align: center;
   border: 2px solid #2a3a5c;
   transition: all 0.2s;
@@ -393,13 +393,15 @@ body {
   transform: scale(1.1);
 }
 
-/* Side Panel */
+/* Side Panel — stretches to same height as board */
 .side-panel {
-  width: 300px;
+  width: 340px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: calc(var(--board-size) + 80px);
+  /* Match board height: board + 2 player-bars (~40px each) + gaps */
+  height: calc(var(--board-size) + 88px);
+  max-height: calc(var(--board-size) + 88px);
 }
 
 .side-panel h3 {
@@ -418,13 +420,25 @@ body {
   padding: 16px;
 }
 
+.status-panel {
+  flex-shrink: 0;
+}
+
 .game-status {
   font-size: 1rem;
   font-weight: 600;
 }
 
+/* Move history takes available space */
+.move-history-panel {
+  flex: 1 1 30%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .move-history {
-  max-height: 180px;
+  flex: 1;
   overflow-y: auto;
   font-family: 'Courier New', monospace;
   font-size: 0.85rem;
@@ -445,16 +459,17 @@ body {
   flex: 1;
 }
 
+/* Chat takes the rest */
 .chat-panel {
-  flex: 1;
+  flex: 1 1 40%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  max-height: 200px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -482,6 +497,7 @@ body {
   display: flex;
   gap: 6px;
   margin-top: 8px;
+  flex-shrink: 0;
 }
 
 .chat-input-row input {
@@ -676,7 +692,7 @@ body {
 /* Responsive */
 @media (max-width: 768px) {
   :root {
-    --board-size: 90vmin;
+    --board-size: 92vmin;
   }
 
   .game-layout {
@@ -685,7 +701,8 @@ body {
   }
 
   .side-panel {
-    width: 90%;
+    width: 92%;
+    height: auto;
     max-height: none;
   }
 

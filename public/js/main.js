@@ -9,7 +9,7 @@ let selectedSquare = null;
 let pendingPromotion = null;
 let clientChess = null;
 let selectedTimeControl = 'unlimited';
-let rematchPending = false; // true = I requested, waiting for opponent
+let rematchPending = false;
 let localClocks = { w: 0, b: 0 };
 
 // --- DOM elements ---
@@ -23,13 +23,15 @@ const moveHistory = document.getElementById('moveHistory');
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const promotionDialog = document.getElementById('promotionDialog');
-const playerWhite = document.getElementById('playerWhite');
-const playerBlack = document.getElementById('playerBlack');
-const clockWhite = document.getElementById('clockWhite');
-const clockBlack = document.getElementById('clockBlack');
 const rematchDialog = document.getElementById('rematchDialog');
 const rematchDialogText = document.getElementById('rematchDialogText');
 const btnRematch = document.getElementById('btnRematch');
+
+// Player bars — top = opponent, bottom = me (swapped based on color)
+const playerTop = document.getElementById('playerTop');
+const playerBottom = document.getElementById('playerBottom');
+const clockTop = document.getElementById('clockTop');
+const clockBottom = document.getElementById('clockBottom');
 
 // --- Code modal elements ---
 const codeModal = document.getElementById('codeModal');
@@ -59,6 +61,22 @@ document.querySelectorAll('.tc-btn').forEach(btn => {
     selectedTimeControl = btn.dataset.tc;
   });
 });
+
+// --- Setup player bars based on color ---
+function setupPlayerBars(color) {
+  // Bottom = me, Top = opponent
+  if (color === 'w') {
+    playerBottom.textContent = 'You (White)';
+    playerTop.textContent = 'Black';
+  } else if (color === 'b') {
+    playerBottom.textContent = 'You (Black)';
+    playerTop.textContent = 'White';
+  } else {
+    // Spectator — white at bottom (default, not flipped)
+    playerBottom.textContent = 'White';
+    playerTop.textContent = 'Black';
+  }
+}
 
 // --- Square click handler (click-to-move) ---
 function handleSquareClick(sqName) {
@@ -237,31 +255,47 @@ function formatTime(seconds) {
 
 function updateClockDisplay(clocks, turn) {
   if (!gameState || !gameState.timeControl || gameState.timeControl.initial === 0) {
-    clockWhite.classList.add('hidden');
-    clockBlack.classList.add('hidden');
+    clockTop.classList.add('hidden');
+    clockBottom.classList.add('hidden');
     return;
   }
 
-  clockWhite.classList.remove('hidden');
-  clockBlack.classList.remove('hidden');
+  clockTop.classList.remove('hidden');
+  clockBottom.classList.remove('hidden');
 
   localClocks = clocks || localClocks;
-  clockWhite.textContent = formatTime(localClocks.w);
-  clockBlack.textContent = formatTime(localClocks.b);
 
-  // Highlight active clock
-  clockWhite.classList.toggle('active', turn === 'w');
-  clockBlack.classList.toggle('active', turn === 'b');
+  // Map clocks to top/bottom based on perspective
+  // Bottom = my color, Top = opponent
+  let topClockVal, bottomClockVal, topColor, bottomColor;
 
-  // Low time warning
-  clockWhite.classList.toggle('low-time', localClocks.w < 20);
-  clockBlack.classList.toggle('low-time', localClocks.b < 20);
+  if (myColor === 'w') {
+    topColor = 'b'; bottomColor = 'w';
+    topClockVal = localClocks.b; bottomClockVal = localClocks.w;
+  } else if (myColor === 'b') {
+    topColor = 'w'; bottomColor = 'b';
+    topClockVal = localClocks.w; bottomClockVal = localClocks.b;
+  } else {
+    // Spectator: top = black, bottom = white
+    topColor = 'b'; bottomColor = 'w';
+    topClockVal = localClocks.b; bottomClockVal = localClocks.w;
+  }
+
+  clockTop.textContent = formatTime(topClockVal);
+  clockBottom.textContent = formatTime(bottomClockVal);
+
+  clockTop.classList.toggle('active', turn === topColor);
+  clockBottom.classList.toggle('active', turn === bottomColor);
+
+  clockTop.classList.toggle('low-time', topClockVal < 20);
+  clockBottom.classList.toggle('low-time', bottomClockVal < 20);
 }
 
 // --- Socket events ---
 socket.on('game:created', ({ gameId: id, color }) => {
   gameId = id;
   myColor = color;
+  setupPlayerBars(color);
   showGameScreen(id, color);
   board.setMyColor(color);
   board.setFlipped(color === 'b');
@@ -274,6 +308,7 @@ socket.on('game:created', ({ gameId: id, color }) => {
 socket.on('game:joined', ({ gameId: id, color }) => {
   gameId = id;
   myColor = color;
+  setupPlayerBars(color);
   showGameScreen(id, color);
   board.setMyColor(color);
   board.setFlipped(color === 'b');
@@ -302,7 +337,6 @@ socket.on('game:state', (state) => {
     checkSquare: state.isCheck ? getKingSquare(state.fen, state.turn) : null
   });
 
-  // Update clocks
   if (state.clocks) {
     localClocks = state.clocks;
     updateClockDisplay(state.clocks, state.turn);
@@ -400,8 +434,13 @@ function updateUI(state) {
     turnIndicator.className = 'turn-indicator';
   }
 
-  playerWhite.classList.toggle('active', state.turn === 'w');
-  playerBlack.classList.toggle('active', state.turn === 'b');
+  // Highlight active player label
+  const myLabelIsBottom = true; // bottom is always "me"
+  const topColor = myColor === 'w' ? 'b' : myColor === 'b' ? 'w' : 'b';
+  const bottomColor = myColor === 'w' ? 'w' : myColor === 'b' ? 'b' : 'w';
+
+  playerTop.classList.toggle('active', state.turn === topColor);
+  playerBottom.classList.toggle('active', state.turn === bottomColor);
 
   if (state.isCheckmate) {
     const winner = state.turn === 'w' ? 'Black' : 'White';
