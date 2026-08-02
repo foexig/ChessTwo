@@ -530,8 +530,8 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '::', () => {
   console.log(`\n  Chess server running!`);
   console.log(`  Local:   http://localhost:${PORT}`);
-  console.log(`  Network: http://<your-ip>:${PORT}\n`);
+  console.log(`  IPv6:    http://[your-ipv6-address]:${PORT}\n`);
 });
